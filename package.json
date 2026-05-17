@@ -1,14 +1,15 @@
 {
   "name": "@daformat/react-number-flow-input",
-  "version": "1.0.2",
+  "version": "0.0.1",
   "license": "Zero-Clause BSD",
-  "description": "A react split flap display component, with no dependencies",
+  "description": "A react number flow input component, with no dependencies",
   "keywords": [
-    "split-flap",
-    "split-flap-display",
-    "headless",
-    "carousel-component",
-    "react-component"
+    "number-flow",
+    "input",
+    "animated",
+    "barrel-wheel",
+    "react-component",
+    "react"
   ],
   "homepage": "https://github.com/daformat/react-number-flow-input",
   "bugs": {

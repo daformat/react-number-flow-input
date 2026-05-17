@@ -1,10 +1,33 @@
+export interface BarrelWheelData {
+  sequence: string[];
+  direction: "up" | "down";
+  /**
+   * Set on wheels that represent a digit appearing from "nothing" (i.e. a
+   * newly added digit in a value-prop replacement). The wheel sequence
+   * starts at "0" and rolls to the new digit, and the consumer should
+   * additionally fade the wheel's opacity 0 → 1 and grow the slot's
+   * width 0 → final width to match the user-facing "wheel from 0" feel.
+   */
+  fromZero?: boolean;
+}
+
+export interface RemovedDigitWheel {
+  /** Digit that was at this position in the old value. */
+  oldChar: string;
+  /** Position of the span in the *old* formatted text. */
+  oldFormattedIndex: number;
+}
+
 export interface Changes {
   addedIndices: Set<number>;
   unchangedIndices: Set<number>;
-  barrelWheelIndices: Map<
-    number,
-    { sequence: string[]; direction: "up" | "down" }
-  >;
+  barrelWheelIndices: Map<number, BarrelWheelData>;
+  /**
+   * Old raw indices that have no aligned new position and held a digit;
+   * the consumer should animate these out (wheel digit → 0, opacity 1 → 0,
+   * width → 0) before removing the span.
+   */
+  removedDigitWheels?: Map<number, RemovedDigitWheel>;
 }
 
 export interface PositionChange {
@@ -364,15 +387,32 @@ export const getReplacementChanges = (
     addedIndices: new Set(),
     unchangedIndices: new Set(),
     barrelWheelIndices: new Map(),
+    removedDigitWheels: new Map(),
   };
 
   if (!oldValue) {
     for (let i = 0; i < newValue.length; i++) {
-      changes.addedIndices.add(i);
+      const ch = newValue[i];
+      if (ch && /^\d$/.test(ch)) {
+        const wheel = buildBarrelWheel("0", ch);
+        wheel.fromZero = true;
+        changes.barrelWheelIndices.set(i, wheel);
+      } else {
+        changes.addedIndices.add(i);
+      }
     }
     return changes;
   }
   if (!newValue) {
+    for (let i = 0; i < oldValue.length; i++) {
+      const ch = oldValue[i];
+      if (ch && /^\d$/.test(ch)) {
+        changes.removedDigitWheels!.set(i, {
+          oldChar: ch,
+          oldFormattedIndex: -1,
+        });
+      }
+    }
     return changes;
   }
 
@@ -391,6 +431,10 @@ export const getReplacementChanges = (
   // Integer part: right-align
   const oldIntLen = oldParts.int.length;
   const newIntLen = newParts.int.length;
+  // Track which old integer positions get consumed by the alignment so we
+  // can flag the leftover ones (digits dropped off the left edge) as
+  // removed-digit wheels.
+  const consumedOldIntPositions = new Set<number>();
   for (let pos = 0; pos < newIntLen; pos++) {
     const newIdx = newParts.intStart + pos;
     const newChar = newParts.int[pos];
@@ -400,15 +444,48 @@ export const getReplacementChanges = (
     const distFromEnd = newIntLen - 1 - pos;
     const oldPos = oldIntLen - 1 - distFromEnd;
     const oldChar = oldPos >= 0 ? oldParts.int[oldPos] : undefined;
+    if (oldChar !== undefined) {
+      consumedOldIntPositions.add(oldPos);
+    }
 
     if (oldChar === undefined) {
-      changes.addedIndices.add(newIdx);
+      // No aligned old digit at this slot. If the new char is a digit it
+      // should animate in as a wheel from "0"; otherwise (separators)
+      // keep the existing flow-animation behavior.
+      if (/^\d$/.test(newChar)) {
+        const wheel = buildBarrelWheel("0", newChar);
+        wheel.fromZero = true;
+        changes.barrelWheelIndices.set(newIdx, wheel);
+      } else {
+        changes.addedIndices.add(newIdx);
+      }
     } else if (oldChar === newChar) {
       changes.unchangedIndices.add(newIdx);
     } else if (/^\d$/.test(oldChar) && /^\d$/.test(newChar)) {
-      changes.barrelWheelIndices.set(newIdx, buildBarrelWheel(oldChar, newChar));
+      changes.barrelWheelIndices.set(
+        newIdx,
+        buildBarrelWheel(oldChar, newChar),
+      );
     } else {
       changes.addedIndices.add(newIdx);
+    }
+  }
+
+  // Old integer positions left over (because newIntLen < oldIntLen) drop
+  // off the left edge. Each old digit position becomes a removed-digit
+  // wheel; non-digit chars (separators) are not tracked here so they keep
+  // their existing "fade out" path.
+  for (let oldPos = 0; oldPos < oldIntLen; oldPos++) {
+    if (consumedOldIntPositions.has(oldPos)) {
+      continue;
+    }
+    const oldChar = oldParts.int[oldPos];
+    if (oldChar && /^\d$/.test(oldChar)) {
+      const oldRawIdx = oldParts.intStart + oldPos;
+      changes.removedDigitWheels!.set(oldRawIdx, {
+        oldChar,
+        oldFormattedIndex: -1,
+      });
     }
   }
 
@@ -433,7 +510,13 @@ export const getReplacementChanges = (
       const oldChar = pos < oldDec.length ? oldDec[pos] : undefined;
 
       if (oldChar === undefined) {
-        changes.addedIndices.add(newIdx);
+        if (/^\d$/.test(newChar)) {
+          const wheel = buildBarrelWheel("0", newChar);
+          wheel.fromZero = true;
+          changes.barrelWheelIndices.set(newIdx, wheel);
+        } else {
+          changes.addedIndices.add(newIdx);
+        }
       } else if (oldChar === newChar) {
         changes.unchangedIndices.add(newIdx);
       } else if (/^\d$/.test(oldChar) && /^\d$/.test(newChar)) {
@@ -443,6 +526,35 @@ export const getReplacementChanges = (
         );
       } else {
         changes.addedIndices.add(newIdx);
+      }
+    }
+
+    // Old decimal positions left over (because newDec.length < oldDec.length)
+    // drop off the right edge. Each old digit position becomes a
+    // removed-digit wheel.
+    if (oldParts.decStart !== -1) {
+      for (let pos = newParts.dec.length; pos < oldDec.length; pos++) {
+        const oldChar = oldDec[pos];
+        if (oldChar && /^\d$/.test(oldChar)) {
+          const oldRawIdx = oldParts.decStart + pos;
+          changes.removedDigitWheels!.set(oldRawIdx, {
+            oldChar,
+            oldFormattedIndex: -1,
+          });
+        }
+      }
+    }
+  } else if (oldParts.dec !== null && oldParts.decStart !== -1) {
+    // Old value had a decimal part, new value has none: every old decimal
+    // digit is a removed digit.
+    for (let pos = 0; pos < oldParts.dec.length; pos++) {
+      const oldChar = oldParts.dec[pos];
+      if (oldChar && /^\d$/.test(oldChar)) {
+        const oldRawIdx = oldParts.decStart + pos;
+        changes.removedDigitWheels!.set(oldRawIdx, {
+          oldChar,
+          oldFormattedIndex: -1,
+        });
       }
     }
   }
@@ -836,6 +948,16 @@ export const getPositionChanges = (
         if (oldNonSepIdx !== undefined) {
           const oldFormattedIdx = oldNonSepToFormatted.get(oldNonSepIdx);
           if (oldFormattedIdx !== undefined && char !== undefined) {
+            // LCS can be ambiguous when the same digit appears multiple times
+            // (e.g. "6,650,431" → "6,850,431": the leading "6" can be matched
+            // to either of the two old "6"s of equal LCS length). When the
+            // SAME character is at the SAME formatted position in old, the
+            // digit obviously didn't move and we must skip the animation to
+            // avoid translating it from a phantom location.
+            if (oldFormatted[newIdx] === char) {
+              continue;
+            }
+
             // Character existed before - check if it crossed a group boundary
             const oldGroup = getGroupNumber(
               oldFormatted,

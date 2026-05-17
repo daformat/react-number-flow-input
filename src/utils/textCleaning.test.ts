@@ -1,0 +1,97 @@
+import { describe, expect, it } from "vitest";
+
+import { cleanText, parseNumberValue } from "./textCleaning.js";
+
+describe("cleanText", () => {
+  it("strips characters that are not digits, '.' or '-'", () => {
+    expect(cleanText("1a2b3c", false).cleanedText).toBe("123");
+    expect(cleanText("1,234", false).cleanedText).toBe("1234");
+    expect(cleanText("1 234.56", false).cleanedText).toBe("1234.56");
+  });
+
+  it("keeps only the first minus and only if it is the leading character", () => {
+    expect(cleanText("--12", false).cleanedText).toBe("-12");
+    expect(cleanText("12-3", false).cleanedText).toBe("123");
+    expect(cleanText("-1-2-3", false).cleanedText).toBe("-123");
+  });
+
+  it("keeps only the first decimal point", () => {
+    expect(cleanText("1.2.3", false).cleanedText).toBe("1.23");
+    expect(cleanText("1...2", false).cleanedText).toBe("1.2");
+  });
+
+  it("strips a single leading zero in a multi-digit integer", () => {
+    // leadingZerosRemoved counts the EXTRA leading zeros that were
+    // dropped beyond a single normalized one — "0123" loses exactly 1
+    // leading zero, leaving 0 extras.
+    const result = cleanText("0123", false);
+    expect(result.cleanedText).toBe("123");
+    expect(result.leadingZerosRemoved).toBe(0);
+  });
+
+  it("strips multiple leading zeros and reports the extras dropped", () => {
+    const result = cleanText("00042", false);
+    expect(result.cleanedText).toBe("42");
+    // 3 leading zeros were present in the input; 1 is the "expected"
+    // normalized one and the remaining 2 are reported as extras.
+    expect(result.leadingZerosRemoved).toBe(2);
+  });
+
+  it("keeps the single leading 0 when the input is 0.xxx", () => {
+    const result = cleanText("0.123", false);
+    expect(result.cleanedText).toBe("0.123");
+    expect(result.leadingZerosRemoved).toBe(0);
+  });
+
+  it("keeps the leading 0 for a lone '0'", () => {
+    expect(cleanText("0", false).cleanedText).toBe("0");
+  });
+
+  it("preserves the leading 0 + decimal even when the integer was '00'", () => {
+    const result = cleanText("00.5", false);
+    // "00.5" → strip lead "0", result "0.5"
+    expect(result.cleanedText).toBe("0.5");
+  });
+
+  it("strips leading zeros from negative numbers too", () => {
+    expect(cleanText("-007", false).cleanedText).toBe("-7");
+    expect(cleanText("-0.5", false).cleanedText).toBe("-0.5");
+  });
+
+  it("autoAddLeadingZero turns '.5' into '0.5' and '-.5' into '-0.5'", () => {
+    expect(cleanText(".5", true).cleanedText).toBe("0.5");
+    expect(cleanText("-.5", true).cleanedText).toBe("-0.5");
+  });
+
+  it("does not add a leading zero when autoAddLeadingZero is false", () => {
+    expect(cleanText(".5", false).cleanedText).toBe(".5");
+    expect(cleanText("-.5", false).cleanedText).toBe("-.5");
+  });
+
+  it("returns empty cleanedText for an all-junk input", () => {
+    expect(cleanText("abc", false).cleanedText).toBe("");
+  });
+});
+
+describe("parseNumberValue", () => {
+  it("returns undefined for the intermediate states", () => {
+    expect(parseNumberValue("")).toBeUndefined();
+    expect(parseNumberValue("-")).toBeUndefined();
+    expect(parseNumberValue(".")).toBeUndefined();
+    expect(parseNumberValue("-.")).toBeUndefined();
+  });
+
+  it("parses standard numeric strings", () => {
+    expect(parseNumberValue("123")).toBe(123);
+    expect(parseNumberValue("-12.5")).toBe(-12.5);
+    expect(parseNumberValue("0.5")).toBe(0.5);
+  });
+
+  it("returns undefined for non-numeric input", () => {
+    expect(parseNumberValue("abc")).toBeUndefined();
+  });
+
+  it("parses a trailing dot like parseFloat does", () => {
+    expect(parseNumberValue("12.")).toBe(12);
+  });
+});

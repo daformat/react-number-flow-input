@@ -2,7 +2,6 @@ import { fireEvent, render, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { NumberFlowInput } from "./NumberFlowInput.js";
-import { getFormattedChanges, getPositionChanges } from "./utils/changes.js";
 
 // Helper to get the contentEditable element
 const getInput = () => {
@@ -1396,6 +1395,84 @@ describe("NumberFlowInput", () => {
         // Should go back to previous state
         expect(onChange).toHaveBeenCalled();
       });
+    });
+
+    it("places cursor at the formatted equivalent of the raw position after undo (with separators)", async () => {
+      render(<NumberFlowInput format />);
+
+      const input = getInput();
+      input.focus();
+
+      await typeText(input, "1234");
+      await waitFor(() => {
+        expect(input.textContent).toBe("1,234");
+      });
+
+      // Append "5" at the end → "12,345"
+      setCursorPosition(input, 5); // end of "1,234"
+      await typeText(input, "5");
+      await waitFor(() => {
+        expect(input.textContent).toBe("12,345");
+      });
+
+      // Undo. cursorPosBefore was the RAW cursor position before "5" was
+      // typed, i.e. 4 (end of raw "1234"). In the formatted text "1,234"
+      // that raw index 4 must be mapped to formatted index 5 (the end),
+      // not left at 4 (which would land between "3" and "4").
+      fireEvent.keyDown(input, {
+        key: "z",
+        metaKey: true,
+        preventDefault: vi.fn(),
+      });
+
+      await waitFor(() => {
+        expect(input.textContent).toBe("1,234");
+      });
+
+      // Give the rAF-deferred cursor restore a chance to run.
+      await new Promise((resolve) => setTimeout(resolve, 30));
+
+      expect(getCursorPosition(input)).toBe(5);
+    });
+
+    it("places cursor correctly after undoing a deletion in the middle of a formatted number", async () => {
+      render(<NumberFlowInput defaultValue={1234567} format />);
+
+      const input = getInput();
+      input.focus();
+      expect(input.textContent).toBe("1,234,567");
+
+      // Place cursor after the "4" (formatted index 5, raw index 4) and
+      // delete it with backspace → raw "123567" → formatted "123,567".
+      setCursorPosition(input, 5);
+      fireEvent.keyDown(input, {
+        key: "Backspace",
+        preventDefault: vi.fn(),
+      });
+
+      await waitFor(() => {
+        expect(input.textContent).toBe("123,567");
+      });
+
+      // Undo. The cursorPosBefore stored is the RAW position 4 (end of
+      // "1234" in raw "1234567"). In formatted "1,234,567" that raw
+      // position maps to formatted index 6 (right after the separator,
+      // before the "5") per mapRawToFormattedIndex. The important point
+      // is that the cursor must NOT land at raw index 4, which in the
+      // formatted text would fall between the "3" and the "4".
+      fireEvent.keyDown(input, {
+        key: "z",
+        metaKey: true,
+        preventDefault: vi.fn(),
+      });
+
+      await waitFor(() => {
+        expect(input.textContent).toBe("1,234,567");
+      });
+
+      await new Promise((resolve) => setTimeout(resolve, 30));
+
+      expect(getCursorPosition(input)).toBe(6);
     });
 
     it("should redo changes with Cmd+Shift+Z", async () => {
@@ -3007,9 +3084,7 @@ describe("NumberFlowInput", () => {
       });
 
       it("renders correct formatted text when value goes between two same-length values", async () => {
-        const { rerender } = render(
-          <NumberFlowInput value={2345678} format />,
-        );
+        const { rerender } = render(<NumberFlowInput value={2345678} format />);
         const input = getInput();
         expect(input.textContent).toBe("2,345,678");
 
@@ -3032,9 +3107,7 @@ describe("NumberFlowInput", () => {
       });
 
       it("animates digit replacements as barrel wheels for same-length value swaps", async () => {
-        const { rerender } = render(
-          <NumberFlowInput value={2345678} format />,
-        );
+        const { rerender } = render(<NumberFlowInput value={2345678} format />);
         const input = getInput();
         const parent = input.parentElement!;
 
@@ -3050,7 +3123,9 @@ describe("NumberFlowInput", () => {
       });
 
       it("does not animate on initial mount (no FOUC / no wheels for initial value)", async () => {
-        const { container } = render(<NumberFlowInput value={9973462} format />);
+        const { container } = render(
+          <NumberFlowInput value={9973462} format />,
+        );
         const input = getInput();
         const parent = input.parentElement!;
 
@@ -3277,9 +3352,7 @@ describe("NumberFlowInput", () => {
         // Simulate the scenario where prop changes back-to-back without
         // waiting for transitions to settle, which is when ghost spans tend
         // to appear.
-        const { rerender } = render(
-          <NumberFlowInput value={2345678} format />,
-        );
+        const { rerender } = render(<NumberFlowInput value={2345678} format />);
         const input = getInput();
         expect(input.textContent).toBe("2,345,678");
 
@@ -3304,6 +3377,325 @@ describe("NumberFlowInput", () => {
           expect(span.getAttribute("data-char-index")).toBe(i.toString());
           expect(span.textContent).toBe("9,973,462"[i]);
         });
+      });
+
+      it("does not garble the leading digit when bouncing 6850431 ↔ 6650431", async () => {
+        // Repro for "0 and 6 overlap at leading position" reported when
+        // selecting the middle digit, typing a value that already exists at
+        // the leading position, then bouncing back.
+        const { rerender } = render(<NumberFlowInput value={6850431} format />);
+        const input = getInput();
+        expect(input.textContent).toBe("6,850,431");
+
+        // 6,850,431 → 6,650,431 (middle 8 becomes 6, now two leading 6s).
+        rerender(<NumberFlowInput value={6650431} format />);
+        await new Promise((resolve) => setTimeout(resolve, 50));
+        fireAllTransitions(input);
+        await new Promise((resolve) => setTimeout(resolve, 50));
+        expect(input.textContent).toBe("6,650,431");
+
+        // 6,650,431 → 6,850,431 (middle 6 becomes 8 again).
+        rerender(<NumberFlowInput value={6850431} format />);
+        await new Promise((resolve) => setTimeout(resolve, 50));
+        fireAllTransitions(input);
+        await new Promise((resolve) => setTimeout(resolve, 50));
+
+        const spans = getRenderedSpans(input);
+        expect(spans).toHaveLength("6,850,431".length);
+        expect(getRenderedText(input)).toBe("6,850,431");
+        spans.forEach((span, i) => {
+          expect(span.getAttribute("data-char-index")).toBe(i.toString());
+          expect(span.textContent).toBe("6,850,431"[i]);
+          // Final state: nothing should be left transparent.
+          expect(span.style.color).not.toBe("transparent");
+          expect(span.style.color).not.toBe("rgba(0, 0, 0, 0)");
+        });
+
+        // And no stale barrel wheels should remain.
+        const parent = input.parentElement;
+        if (parent) {
+          const wheels = parent.querySelectorAll("[data-barrel-wheel]");
+          expect(wheels.length).toBe(0);
+        }
+      });
+
+      it("does not garble the leading digit when bouncing via typing (uncontrolled)", async () => {
+        // Repro for the typing case: select the middle digit and replace
+        // it with a value that already exists at the leading position,
+        // then immediately do the inverse.
+        render(<NumberFlowInput defaultValue={6850431} format />);
+        const input = getInput();
+        input.focus();
+        expect(input.textContent).toBe("6,850,431");
+
+        // Select formatted positions [2,3] (the "8").
+        const selectFormattedRange = (start: number, end: number) => {
+          const walker = document.createTreeWalker(
+            input,
+            NodeFilter.SHOW_TEXT,
+            null,
+          );
+          let currentPos = 0;
+          let startNode: Node | null = null;
+          let endNode: Node | null = null;
+          let startOffset = 0;
+          let endOffset = 0;
+
+          let node: Node | null;
+          while ((node = walker.nextNode())) {
+            const nodeLength = node.textContent?.length ?? 0;
+            if (!startNode && currentPos + nodeLength >= start) {
+              startNode = node;
+              startOffset = Math.min(start - currentPos, nodeLength);
+            }
+            if (!endNode && currentPos + nodeLength >= end) {
+              endNode = node;
+              endOffset = Math.min(end - currentPos, nodeLength);
+              break;
+            }
+            currentPos += nodeLength;
+          }
+          if (startNode && endNode) {
+            const selection = window.getSelection();
+            if (selection) {
+              const range = document.createRange();
+              range.setStart(startNode, startOffset);
+              range.setEnd(endNode, endOffset);
+              selection.removeAllRanges();
+              selection.addRange(range);
+            }
+          }
+        };
+
+        selectFormattedRange(2, 3);
+        fireEvent.keyDown(input, { key: "6", preventDefault: vi.fn() });
+        await new Promise((resolve) => setTimeout(resolve, 50));
+        fireAllTransitions(input);
+        await new Promise((resolve) => setTimeout(resolve, 50));
+        expect(input.textContent).toBe("6,650,431");
+
+        // Select formatted positions [2,3] again (the new "6").
+        selectFormattedRange(2, 3);
+        fireEvent.keyDown(input, { key: "8", preventDefault: vi.fn() });
+        await new Promise((resolve) => setTimeout(resolve, 50));
+        fireAllTransitions(input);
+        await new Promise((resolve) => setTimeout(resolve, 50));
+
+        const spans = getRenderedSpans(input);
+        expect(spans).toHaveLength("6,850,431".length);
+        expect(getRenderedText(input)).toBe("6,850,431");
+        spans.forEach((span, i) => {
+          expect(span.getAttribute("data-char-index")).toBe(i.toString());
+          expect(span.textContent).toBe("6,850,431"[i]);
+          expect(span.style.color).not.toBe("transparent");
+          expect(span.style.color).not.toBe("rgba(0, 0, 0, 0)");
+        });
+
+        const parent = input.parentElement;
+        if (parent) {
+          const wheels = parent.querySelectorAll("[data-barrel-wheel]");
+          expect(wheels.length).toBe(0);
+        }
+      });
+
+      it("inspects DOM mid-animation when bouncing 6850431 ↔ 6650431 ↔ 6850431", async () => {
+        // Reproduces the user's reported flow and inspects the DOM at the
+        // moment the second wheel kicks off (no transitionend in between).
+        render(<NumberFlowInput defaultValue={6850431} format />);
+        const input = getInput();
+        input.focus();
+        expect(input.textContent).toBe("6,850,431");
+
+        const selectFormattedRange = (start: number, end: number) => {
+          const walker = document.createTreeWalker(
+            input,
+            NodeFilter.SHOW_TEXT,
+            null,
+          );
+          let currentPos = 0;
+          let startNode: Node | null = null;
+          let endNode: Node | null = null;
+          let startOffset = 0;
+          let endOffset = 0;
+          let node: Node | null;
+          while ((node = walker.nextNode())) {
+            const nodeLength = node.textContent?.length ?? 0;
+            if (!startNode && currentPos + nodeLength >= start) {
+              startNode = node;
+              startOffset = Math.min(start - currentPos, nodeLength);
+            }
+            if (!endNode && currentPos + nodeLength >= end) {
+              endNode = node;
+              endOffset = Math.min(end - currentPos, nodeLength);
+              break;
+            }
+            currentPos += nodeLength;
+          }
+          if (startNode && endNode) {
+            const selection = window.getSelection();
+            if (selection) {
+              const range = document.createRange();
+              range.setStart(startNode, startOffset);
+              range.setEnd(endNode, endOffset);
+              selection.removeAllRanges();
+              selection.addRange(range);
+            }
+          }
+        };
+
+        // Step 1: replace "8" with "6"
+        selectFormattedRange(2, 3);
+        fireEvent.keyDown(input, { key: "6", preventDefault: vi.fn() });
+        // Allow the synchronous main loop + the rAF that builds the wheel.
+        await new Promise((resolve) => setTimeout(resolve, 30));
+
+        // Step 2: immediately replace the new "6" with "8" (no settle).
+        selectFormattedRange(2, 3);
+        fireEvent.keyDown(input, { key: "8", preventDefault: vi.fn() });
+        // Allow the synchronous main loop + rAF.
+        await new Promise((resolve) => setTimeout(resolve, 30));
+
+        // ---- Mid-animation DOM inspection ----
+        const parent = input.parentElement;
+        const wheels = parent
+          ? Array.from(parent.querySelectorAll("[data-barrel-wheel]"))
+          : [];
+
+        // We should have exactly one barrel wheel, at formatted index 2.
+        // If we have more (e.g. a leftover at index 0 or index 1) that's
+        // the "leading digit confused with the typed digit" bug.
+        const wheelIndices = wheels
+          .map((w) => parseInt(w.getAttribute("data-char-index") ?? "-1", 10))
+          .sort((a, b) => a - b);
+        expect(wheelIndices).toEqual([2]);
+
+        // Span sanity check: text contents must be in order.
+        const spans = getRenderedSpans(input);
+        expect(spans).toHaveLength("6,850,431".length);
+        expect(getRenderedText(input)).toBe("6,850,431");
+        spans.forEach((span, i) => {
+          expect(span.getAttribute("data-char-index")).toBe(i.toString());
+          expect(span.textContent).toBe("6,850,431"[i]);
+        });
+
+        // Only the digit being barrel-rolled (formatted idx 2) should be
+        // hidden (color:transparent). Any other transparent span means we
+        // accidentally hid a sibling — e.g. the leading "6".
+        spans.forEach((span, i) => {
+          if (i === 2) {
+            return;
+          }
+          expect({ index: i, color: span.style.color }).toEqual({
+            index: i,
+            color: "",
+          });
+        });
+      });
+
+      it("does not garble the leading digit when typing rapidly (uncontrolled, no settle)", async () => {
+        // Same as above but without letting the first wheel settle —
+        // mirrors the user's reported screenshots.
+        render(<NumberFlowInput defaultValue={6850431} format />);
+        const input = getInput();
+        input.focus();
+        expect(input.textContent).toBe("6,850,431");
+
+        const selectFormattedRange = (start: number, end: number) => {
+          const walker = document.createTreeWalker(
+            input,
+            NodeFilter.SHOW_TEXT,
+            null,
+          );
+          let currentPos = 0;
+          let startNode: Node | null = null;
+          let endNode: Node | null = null;
+          let startOffset = 0;
+          let endOffset = 0;
+          let node: Node | null;
+          while ((node = walker.nextNode())) {
+            const nodeLength = node.textContent?.length ?? 0;
+            if (!startNode && currentPos + nodeLength >= start) {
+              startNode = node;
+              startOffset = Math.min(start - currentPos, nodeLength);
+            }
+            if (!endNode && currentPos + nodeLength >= end) {
+              endNode = node;
+              endOffset = Math.min(end - currentPos, nodeLength);
+              break;
+            }
+            currentPos += nodeLength;
+          }
+          if (startNode && endNode) {
+            const selection = window.getSelection();
+            if (selection) {
+              const range = document.createRange();
+              range.setStart(startNode, startOffset);
+              range.setEnd(endNode, endOffset);
+              selection.removeAllRanges();
+              selection.addRange(range);
+            }
+          }
+        };
+
+        selectFormattedRange(2, 3);
+        fireEvent.keyDown(input, { key: "6", preventDefault: vi.fn() });
+        await new Promise((resolve) => setTimeout(resolve, 8));
+
+        selectFormattedRange(2, 3);
+        fireEvent.keyDown(input, { key: "8", preventDefault: vi.fn() });
+
+        await new Promise((resolve) => setTimeout(resolve, 100));
+        fireAllTransitions(input);
+        await new Promise((resolve) => setTimeout(resolve, 50));
+
+        const spans = getRenderedSpans(input);
+        expect(spans).toHaveLength("6,850,431".length);
+        expect(getRenderedText(input)).toBe("6,850,431");
+        spans.forEach((span, i) => {
+          expect(span.getAttribute("data-char-index")).toBe(i.toString());
+          expect(span.textContent).toBe("6,850,431"[i]);
+          expect(span.style.color).not.toBe("transparent");
+          expect(span.style.color).not.toBe("rgba(0, 0, 0, 0)");
+        });
+
+        const parent = input.parentElement;
+        if (parent) {
+          const wheels = parent.querySelectorAll("[data-barrel-wheel]");
+          expect(wheels.length).toBe(0);
+        }
+      });
+
+      it("does not garble the leading digit when bouncing rapidly (no settle between)", async () => {
+        // Same as above but without waiting for the first transition to
+        // settle — this is what the user's screenshots show happens during
+        // back-to-back keystrokes.
+        const { rerender } = render(<NumberFlowInput value={6850431} format />);
+        const input = getInput();
+        expect(input.textContent).toBe("6,850,431");
+
+        rerender(<NumberFlowInput value={6650431} format />);
+        await new Promise((resolve) => setTimeout(resolve, 8));
+        rerender(<NumberFlowInput value={6850431} format />);
+
+        await new Promise((resolve) => setTimeout(resolve, 100));
+        fireAllTransitions(input);
+        await new Promise((resolve) => setTimeout(resolve, 50));
+
+        const spans = getRenderedSpans(input);
+        expect(spans).toHaveLength("6,850,431".length);
+        expect(getRenderedText(input)).toBe("6,850,431");
+        spans.forEach((span, i) => {
+          expect(span.getAttribute("data-char-index")).toBe(i.toString());
+          expect(span.textContent).toBe("6,850,431"[i]);
+          expect(span.style.color).not.toBe("transparent");
+          expect(span.style.color).not.toBe("rgba(0, 0, 0, 0)");
+        });
+
+        const parent = input.parentElement;
+        if (parent) {
+          const wheels = parent.querySelectorAll("[data-barrel-wheel]");
+          expect(wheels.length).toBe(0);
+        }
       });
     });
 
@@ -3397,6 +3789,192 @@ describe("NumberFlowInput", () => {
         expect(input.textContent).toBe(".5");
         expect(onChange).toHaveBeenLastCalledWith(0.5);
       });
+    });
+
+    it("calls onChange with parsed values as the user types", async () => {
+      const onChange = vi.fn();
+      render(<NumberFlowInput onChange={onChange} />);
+      const input = getInput();
+      input.focus();
+      await typeText(input, "42");
+      await waitFor(() => {
+        expect(onChange).toHaveBeenLastCalledWith(42);
+      });
+    });
+
+    it("decimalScale=2 limits the number of decimal digits the user can type", async () => {
+      const onChange = vi.fn();
+      render(<NumberFlowInput decimalScale={2} onChange={onChange} />);
+      const input = getInput();
+      input.focus();
+      await typeText(input, "1.23");
+      await waitFor(() => {
+        expect(input.textContent).toBe("1.23");
+      });
+      // Typing a 3rd decimal digit must be rejected.
+      await typeText(input, "4");
+      await waitFor(() => {
+        expect(input.textContent).toBe("1.23");
+        expect(onChange).toHaveBeenLastCalledWith(1.23);
+      });
+    });
+
+    it("decimalScale=0 forbids typing a decimal point", async () => {
+      const onChange = vi.fn();
+      render(<NumberFlowInput decimalScale={0} onChange={onChange} />);
+      const input = getInput();
+      input.focus();
+      await typeText(input, "12");
+      await typeText(input, ".");
+      await typeText(input, "5");
+      await waitFor(() => {
+        // The "." must be ignored and the "5" appended as integer.
+        expect(input.textContent).toBe("125");
+      });
+    });
+
+    it("allowNegative={undefined} rejects the minus key", async () => {
+      const onChange = vi.fn();
+      render(<NumberFlowInput onChange={onChange} />);
+      const input = getInput();
+      input.focus();
+      await typeText(input, "-");
+      await typeText(input, "5");
+      await waitFor(() => {
+        expect(input.textContent).toBe("5");
+      });
+    });
+
+    it("allowNegative={true} accepts a leading minus", async () => {
+      const onChange = vi.fn();
+      render(<NumberFlowInput allowNegative onChange={onChange} />);
+      const input = getInput();
+      input.focus();
+      await typeText(input, "-12");
+      await waitFor(() => {
+        expect(input.textContent).toBe("-12");
+        expect(onChange).toHaveBeenLastCalledWith(-12);
+      });
+    });
+
+    it("maxLength prevents typing past the configured length", async () => {
+      const onChange = vi.fn();
+      render(<NumberFlowInput maxLength={3} onChange={onChange} />);
+      const input = getInput();
+      input.focus();
+      await typeText(input, "12345");
+      await waitFor(() => {
+        // Only first 3 chars accepted.
+        expect(input.textContent).toBe("123");
+        expect(onChange).toHaveBeenLastCalledWith(123);
+      });
+    });
+
+    it("isAllowed blocks values that don't pass the predicate", async () => {
+      const onChange = vi.fn();
+      // Only allow values <= 50.
+      const isAllowed = (v: number | null) => v == null || v <= 50;
+      render(<NumberFlowInput isAllowed={isAllowed} onChange={onChange} />);
+      const input = getInput();
+      input.focus();
+      await typeText(input, "4");
+      await waitFor(() => expect(input.textContent).toBe("4"));
+      await typeText(input, "9");
+      await waitFor(() => expect(input.textContent).toBe("49"));
+      // Typing "9" would make 499 which is > 50, must be rejected.
+      await typeText(input, "9");
+      await waitFor(() => {
+        expect(input.textContent).toBe("49");
+      });
+    });
+
+    it("autoFocus focuses the contentEditable on mount", () => {
+      render(<NumberFlowInput autoFocus />);
+      const input = getInput();
+      expect(document.activeElement).toBe(input);
+    });
+
+    it("does not focus on mount when autoFocus is false", () => {
+      render(<NumberFlowInput />);
+      const input = getInput();
+      expect(document.activeElement).not.toBe(input);
+    });
+
+    it("invokes onFocus/onBlur handlers", () => {
+      const onFocus = vi.fn();
+      const onBlur = vi.fn();
+      render(<NumberFlowInput onFocus={onFocus} onBlur={onBlur} />);
+      const input = getInput();
+      fireEvent.focus(input);
+      expect(onFocus).toHaveBeenCalledTimes(1);
+      fireEvent.blur(input);
+      expect(onBlur).toHaveBeenCalledTimes(1);
+    });
+
+    it("places the placeholder on the contenteditable's data-placeholder attribute", () => {
+      render(<NumberFlowInput placeholder="Enter amount" />);
+      const input = getInput();
+      expect(input.getAttribute("data-placeholder")).toBe("Enter amount");
+    });
+
+    it("applies className to the root span", () => {
+      render(<NumberFlowInput className="foo bar" />);
+      const root = document.querySelector(
+        "[data-numberflow-input-root]",
+      ) as HTMLElement;
+      expect(root.className).toBe("foo bar");
+    });
+
+    it("merges style into the root span (without losing internal display)", () => {
+      render(<NumberFlowInput style={{ color: "red", margin: "5px" }} />);
+      const root = document.querySelector(
+        "[data-numberflow-input-root]",
+      ) as HTMLElement;
+      expect(root.style.color).toBe("red");
+      expect(root.style.margin).toBe("5px");
+      expect(root.style.display).toBe("inline-flex");
+    });
+
+    it("forwards min/max/minLength/maxLength to the hidden <input>", () => {
+      render(
+        <NumberFlowInput
+          min={0}
+          max={100}
+          minLength={1}
+          maxLength={5}
+          name="x"
+        />,
+      );
+      const hidden = document.querySelector(
+        'input[type="string"]',
+      ) as HTMLInputElement;
+      expect(hidden.min).toBe("0");
+      expect(hidden.max).toBe("100");
+      expect(hidden.minLength).toBe(1);
+      expect(hidden.maxLength).toBe(5);
+    });
+
+    it("forwards form/required to the hidden <input>", () => {
+      render(<NumberFlowInput form="my-form" required name="x" />);
+      const hidden = document.querySelector(
+        'input[type="string"]',
+      ) as HTMLInputElement;
+      expect(hidden.getAttribute("form")).toBe("my-form");
+      expect(hidden.required).toBe(true);
+    });
+
+    it("mirrors the current value into the hidden <input>'s value", async () => {
+      render(<NumberFlowInput defaultValue={42} name="amount" />);
+      const hidden = document.querySelector(
+        'input[name="amount"]',
+      ) as HTMLInputElement;
+      expect(hidden.value).toBe("42");
+    });
+
+    it("forwards a ref to the contenteditable element", () => {
+      const ref = { current: null as HTMLElement | null };
+      render(<NumberFlowInput ref={ref} />);
+      expect(ref.current).toBe(getInput());
     });
   });
 
@@ -3764,154 +4342,6 @@ describe("NumberFlowInput", () => {
 
       // Verify onChange was called with correct value
       expect(onChange).toHaveBeenLastCalledWith(1234);
-    });
-  });
-
-  describe("getFormattedChanges", () => {
-    it("should mark new separator as added", () => {
-      // Going from "123" to "1,234" - comma is NEW
-      // Cursor at end (raw pos 4), started at pos 3, old length 3
-      const result = getFormattedChanges("123", "1,234", 4, 3, 3);
-
-      // Index 1 is the comma in "1,234"
-      expect(result.addedIndices.has(1)).toBe(true);
-      // Index 4 is the "4" in "1,234"
-      expect(result.addedIndices.has(4)).toBe(true);
-    });
-
-    it("should mark shifted separator as unchanged", () => {
-      // Going from "1,234" to "12,345" - comma shifted but is NOT new
-      // Cursor at end (raw pos 5), started at pos 4, old length 4
-      const result = getFormattedChanges("1,234", "12,345", 5, 4, 4);
-
-      // Index 2 is the comma in "12,345"
-      expect(result.unchangedIndices.has(2)).toBe(true);
-      expect(result.addedIndices.has(2)).toBe(false);
-    });
-
-    it("should mark second comma as added when growing from one to two", () => {
-      // Going from "1,234" to "12,345,678" - there's now 2 commas, so 1 is new
-      // Cursor at end (raw pos 8), started at pos 4, old length 4
-      const result = getFormattedChanges("1,234", "12,345,678", 8, 4, 4);
-
-      // Find which comma indices are added vs unchanged
-      const commaIndices = [2, 6]; // "12,345,678" has commas at indices 2 and 6
-      const addedCommas = commaIndices.filter((i) =>
-        result.addedIndices.has(i),
-      );
-      const unchangedCommas = commaIndices.filter((i) =>
-        result.unchangedIndices.has(i),
-      );
-
-      // One comma should be unchanged (it existed before), one should be new
-      expect(unchangedCommas.length).toBe(1);
-      expect(addedCommas.length).toBe(1);
-    });
-
-    it("should not animate any separators when shrinking", () => {
-      // Going from "12,345" to "1,234" - no new separators
-      // Cursor at end (raw pos 4), delete happened, old length 5
-      const result = getFormattedChanges("12,345", "1,234", 4, 4, 5);
-
-      // Index 1 is the comma in "1,234"
-      expect(result.unchangedIndices.has(1)).toBe(true);
-      expect(result.addedIndices.has(1)).toBe(false);
-    });
-
-    it("should animate digit at cursor position for repeated characters", () => {
-      // Typing "8" at end of "88888" to get "888888"
-      // Cursor at end (raw pos 6), started at pos 5, old length 5
-      const result = getFormattedChanges("88,888", "888,888", 6, 5, 5);
-
-      // "888,888" - the last "8" (index 6) should be added
-      expect(result.addedIndices.has(6)).toBe(true);
-
-      // The first 5 digits (indices 0, 1, 2, 4, 5 - skipping comma at 3) should be unchanged
-      expect(result.unchangedIndices.has(0)).toBe(true);
-      expect(result.unchangedIndices.has(1)).toBe(true);
-      expect(result.unchangedIndices.has(2)).toBe(true);
-      expect(result.unchangedIndices.has(4)).toBe(true);
-      expect(result.unchangedIndices.has(5)).toBe(true);
-    });
-
-    it("should animate digit at middle position when inserting in middle", () => {
-      // Typing "9" at position 2 of "12345" to get "129345"
-      // Cursor at pos 3, started at pos 2, old length 5
-      const result = getFormattedChanges("12,345", "129,345", 3, 2, 5);
-
-      // "129,345" - index 2 is the "9" which should be added
-      expect(result.addedIndices.has(2)).toBe(true);
-
-      // Other digits should be unchanged
-      expect(result.unchangedIndices.has(0)).toBe(true); // "1"
-      expect(result.unchangedIndices.has(1)).toBe(true); // "2"
-      expect(result.unchangedIndices.has(4)).toBe(true); // "3"
-      expect(result.unchangedIndices.has(5)).toBe(true); // "4"
-      expect(result.unchangedIndices.has(6)).toBe(true); // "5"
-    });
-
-    it("should animate pasted digits at correct positions", () => {
-      // Pasting "99" at end of "12" to get "1299"
-      // Cursor at pos 4, started at pos 2, old length 2
-      const result = getFormattedChanges("12", "1,299", 4, 2, 2);
-
-      // "1,299" has: 0="1", 1=",", 2="2", 3="9", 4="9"
-      // The pasted "9"s are at indices 3 and 4
-      expect(result.addedIndices.has(3)).toBe(true);
-      expect(result.addedIndices.has(4)).toBe(true);
-
-      // "1" and "2" should be unchanged
-      expect(result.unchangedIndices.has(0)).toBe(true);
-      expect(result.unchangedIndices.has(2)).toBe(true);
-    });
-  });
-
-  describe("getPositionChanges", () => {
-    it("should detect separator position change", () => {
-      // "1,234" -> "12,345": comma moves from index 1 to index 2
-      const changes = getPositionChanges("1,234", "12,345");
-
-      // Should have one position change for the comma
-      const separatorChanges = changes.filter((c) => c.isSeparator);
-      expect(separatorChanges.length).toBe(1);
-      expect(separatorChanges[0]?.oldIndex).toBe(1);
-      expect(separatorChanges[0]?.newIndex).toBe(2);
-    });
-
-    it("should detect digit crossing group boundary", () => {
-      // "1,234" -> "12,345": the "2" moves from after comma to before comma
-      const changes = getPositionChanges("1,234", "12,345");
-
-      // Should have a position change for the "2" crossing group
-      const digitChanges = changes.filter(
-        (c) => !c.isSeparator && c.crossedGroup,
-      );
-      expect(digitChanges.length).toBe(1);
-      expect(digitChanges[0]?.char).toBe("2");
-    });
-
-    it("should detect digits crossing groups when comma is inserted", () => {
-      // "123" -> "1,234": comma is inserted, "2" and "3" cross to group 1
-      const changes = getPositionChanges("123", "1,234");
-
-      // "2" and "3" should be marked as crossing group (from group 0 to group 1)
-      const digitCrossChanges = changes.filter(
-        (c) => !c.isSeparator && c.crossedGroup,
-      );
-      expect(digitCrossChanges.length).toBe(2);
-      expect(digitCrossChanges.map((c) => c.char).sort()).toEqual(["2", "3"]);
-    });
-
-    it("should detect multiple digits crossing groups", () => {
-      // "1,234,567" -> "12,345,678": "2" and "5" cross groups
-      const changes = getPositionChanges("1,234,567", "12,345,678");
-
-      const digitCrossChanges = changes.filter(
-        (c) => !c.isSeparator && c.crossedGroup,
-      );
-      // "2" crosses from group 1 to group 0
-      // "5" crosses from group 2 to group 1
-      expect(digitCrossChanges.length).toBe(2);
     });
   });
 });

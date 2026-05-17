@@ -52,23 +52,52 @@ import {
 } from "./utils/utils.js";
 
 export type NumberFlowInputControlledProps = {
+  // Value if controlled
   value: MaybeUndefined<number>;
+  // Starting value if uncontrolled
   defaultValue?: never;
 };
 
 export type NumberFlowInputUncontrolledProps = {
+  // Starting value if uncontrolled
   defaultValue?: number;
+  // Value if controlled
   value?: never;
 };
 
 export type NumberFlowInputCommonProps = {
+  /**
+   * callback when the value changes
+   */
   onChange?: (value: MaybeUndefined<number>) => void;
+  /**
+   * should the component add leading zero when the user types a decimal point?
+   */
   autoAddLeadingZero?: boolean;
+  /**
+   * number of allowed decimal places
+   */
   decimalScale?: number;
+  /**
+   * whether to allow negative values
+   */
   allowNegative?: boolean;
+  /**
+   * maxLength of the input
+   */
   maxLength?: number;
+  /**
+   * callback to determine if a value is allowed.
+   *   If provided, the input will not allow values that are not allowed.
+   *   The callback is called with the value as an argument.
+   *   If the callback returns false, the input will be prevented from changing.
+   *   If the callback returns true, the input will be allowed to change.
+   *   If the callback is not provided, the input will not be restricted in value.
+   */
   isAllowed?: (value: number | null) => boolean;
-  /** Focus the input on mount. */
+  /**
+   * Focus the input on mount
+   */
   autoFocus?: boolean;
   /**
    * Locale for number formatting.
@@ -78,8 +107,8 @@ export type NumberFlowInputCommonProps = {
   locale?: Intl.UnicodeBCP47LocaleIdentifier | Intl.Locale;
   /**
    * Whether to format the display using Intl.NumberFormat.
-   * If true with locale, uses Intl.NumberFormat(locale).format().
-   * If true without locale, uses Intl.NumberFormat().format().
+   * If true with locale, uses the specified locale.
+   * If true without locale, uses the browser's default locale.
    * Default: false (no formatting)
    */
   format?: boolean;
@@ -2007,18 +2036,32 @@ export const NumberFlowInput = forwardRef<HTMLElement, NumberFlowInputProps>(
                 }
               }
 
-              const oldDigitWidth = oldDigitStr
-                ? measureText(oldDigitStr, charSpan)
-                : 0;
+              // `fromZero` wheels are for digits being added by a value-
+              // prop replacement (no aligned old digit). They start at
+              // width 0 (the slot grows in), the wheel digit rolls from
+              // "0" to the new digit, and the wheel's opacity fades from
+              // 0 → 1. For every other wheel we keep the existing
+              // old-digit → new-digit width animation.
+              const isFromZero = barrelWheelData.fromZero === true;
+              const oldDigitWidth = isFromZero
+                ? 0
+                : oldDigitStr
+                  ? measureText(oldDigitStr, charSpan)
+                  : 0;
               const newDigitWidth = newDigitStr
                 ? measureText(newDigitStr, charSpan)
                 : 0;
+              const shouldAnimateWidth =
+                newDigitWidth > 0 && (oldDigitWidth > 0 || isFromZero);
 
               const wheel = document.createElement("span");
               wheel.dataset.barrelWheel = "";
               wheel.setAttribute("data-direction", direction);
               wheel.setAttribute("data-final-digit", finalDigit.toString());
               wheel.setAttribute("data-char-index", index.toString());
+              if (isFromZero) {
+                wheel.dataset.fromZero = "";
+              }
 
               const wrapper = document.createElement("div");
               wrapper.dataset.barrelWheelDigitsWrapper = "";
@@ -2041,13 +2084,124 @@ export const NumberFlowInput = forwardRef<HTMLElement, NumberFlowInputProps>(
               wheel.appendChild(wrapper);
               parentContainer.appendChild(wheel);
 
-              // Set initial width synchronously to prevent flash
-              if (oldDigitWidth > 0 && newDigitWidth > 0) {
+              // Set initial width synchronously to prevent flash. For
+              // `fromZero` this also pins the slot at 0 before the next
+              // frame's animation target.
+              if (shouldAnimateWidth) {
                 setWidthConstraints(charSpan, oldDigitWidth);
                 void charSpan.offsetWidth;
                 charSpan.setAttribute("data-width-animate", "");
                 void charSpan.offsetWidth;
               }
+
+              if (isFromZero) {
+                // Fade the wheel in alongside the digit roll + width
+                // animation. Use a CSS transition so jsdom (which has no
+                // Web Animations API) can still drive it via
+                // `fireEvent.transitionEnd`. Duration/easing match the
+                // barrel-wheel transition so all three land together.
+                wheel.style.opacity = "0";
+                wheel.style.transition =
+                  "opacity 0.4s cubic-bezier(.215, .61, .355, 1)";
+                void wheel.offsetWidth;
+                requestAnimationFrame(() => {
+                  wheel.style.opacity = "1";
+                });
+              }
+
+              // Attach the wheel's transitionend cleanup synchronously so
+              // tests (and rapid back-to-back replacements) that fire
+              // `transitionend` before the deeply-nested rAF chain that
+              // starts the digit-roll has run can still drive the cleanup
+              // path that un-hides the underlying char span.
+              const handleWheelTransitionEnd = () => {
+                const currentIndexStr = wheel.getAttribute("data-char-index");
+                const currentIndex =
+                  currentIndexStr !== null
+                    ? parseInt(currentIndexStr, 10)
+                    : index;
+                const finalDigitAttr = wheel.getAttribute("data-final-digit");
+                const resolvedFinalDigit =
+                  finalDigitAttr !== null ? finalDigitAttr : newDigitStr;
+
+                const observer =
+                  resizeObserversRef.current.get(currentIndex) ||
+                  resizeObserversRef.current.get(index);
+                if (observer) {
+                  observer.disconnect();
+                  resizeObserversRef.current.delete(currentIndex);
+                  resizeObserversRef.current.delete(index);
+                }
+
+                let targetSpan: HTMLElement | null = null;
+                if (spanRef.current) {
+                  const spanAtCurrentIndex = spanRef.current.querySelector(
+                    `[data-char-index="${currentIndex}"]`,
+                  ) as HTMLElement | null;
+                  if (spanAtCurrentIndex) {
+                    targetSpan = spanAtCurrentIndex;
+                  }
+                }
+
+                if (
+                  !targetSpan &&
+                  charSpan instanceof HTMLElement &&
+                  charSpan.textContent === resolvedFinalDigit
+                ) {
+                  const spanIndex = charSpan.getAttribute("data-char-index");
+                  if (spanIndex !== currentIndex.toString()) {
+                    charSpan.setAttribute(
+                      "data-char-index",
+                      currentIndex.toString(),
+                    );
+                  }
+                  targetSpan = charSpan;
+                }
+
+                if (targetSpan instanceof HTMLElement) {
+                  cleanupWidthAnimation(targetSpan);
+                  removeTransparentColor(targetSpan);
+                  targetSpan.removeAttribute("data-flow");
+                  targetSpan.style.transition = "none";
+                }
+
+                if (!targetSpan && spanRef.current) {
+                  const spanAtCurrentIndex = spanRef.current.querySelector(
+                    `[data-char-index="${currentIndex}"]`,
+                  ) as HTMLElement | null;
+                  if (spanAtCurrentIndex && isTransparent(spanAtCurrentIndex)) {
+                    removeTransparentColor(spanAtCurrentIndex);
+                    spanAtCurrentIndex.removeAttribute("data-flow");
+                    spanAtCurrentIndex.style.transition = "none";
+                    cleanupWidthAnimation(spanAtCurrentIndex);
+                  }
+                }
+
+                wheel.remove();
+
+                requestAnimationFrame(() => {
+                  if (!spanRef.current) {
+                    return;
+                  }
+                  const spanAtCurrentIndex = spanRef.current.querySelector(
+                    `[data-char-index="${currentIndex}"]`,
+                  ) as HTMLElement | null;
+
+                  if (spanAtCurrentIndex && isTransparent(spanAtCurrentIndex)) {
+                    const parent = spanRef.current.parentElement;
+                    const hasBarrelWheel =
+                      parent && getBarrelWheel(parent, currentIndex);
+                    if (!hasBarrelWheel) {
+                      removeTransparentColor(spanAtCurrentIndex);
+                    }
+                  }
+                });
+              };
+              wrapper.addEventListener(
+                "transitionend",
+                handleWheelTransitionEnd,
+                { once: true },
+              );
 
               wheel.style.position = "absolute";
               wheel.style.display = "flex";
@@ -2064,10 +2218,7 @@ export const NumberFlowInput = forwardRef<HTMLElement, NumberFlowInputProps>(
                 if (!wheel.isConnected) {
                   return;
                 }
-                if (
-                  !charSpan.isConnected ||
-                  !spanRef.current?.parentElement
-                ) {
+                if (!charSpan.isConnected || !spanRef.current?.parentElement) {
                   requestAnimationFrame(trackWheelPosition);
                   return;
                 }
@@ -2086,7 +2237,7 @@ export const NumberFlowInput = forwardRef<HTMLElement, NumberFlowInputProps>(
 
               requestAnimationFrame(() => {
                 // Verify width constraints are still set
-                if (oldDigitWidth > 0 && newDigitWidth > 0) {
+                if (shouldAnimateWidth) {
                   if (!charSpan.style.width || charSpan.style.width === "") {
                     setWidthConstraints(charSpan, oldDigitWidth);
                     void charSpan.offsetWidth;
@@ -2118,7 +2269,7 @@ export const NumberFlowInput = forwardRef<HTMLElement, NumberFlowInputProps>(
                       finalPosition.toString(),
                     );
 
-                    if (oldDigitWidth > 0 && newDigitWidth > 0) {
+                    if (shouldAnimateWidth) {
                       if (
                         !charSpan.style.width ||
                         charSpan.style.width === ""
@@ -2220,114 +2371,6 @@ export const NumberFlowInput = forwardRef<HTMLElement, NumberFlowInputProps>(
                         );
                       });
                     }
-
-                    wrapper.addEventListener(
-                      "transitionend",
-                      () => {
-                        const currentIndexStr =
-                          wheel.getAttribute("data-char-index");
-                        const currentIndex =
-                          currentIndexStr !== null
-                            ? parseInt(currentIndexStr, 10)
-                            : index;
-                        const finalDigitAttr =
-                          wheel.getAttribute("data-final-digit");
-                        const finalDigit =
-                          finalDigitAttr !== null
-                            ? finalDigitAttr
-                            : newDigitStr;
-
-                        // Clean up ResizeObserver
-                        const observer =
-                          resizeObserversRef.current.get(currentIndex) ||
-                          resizeObserversRef.current.get(index);
-                        if (observer) {
-                          observer.disconnect();
-                          resizeObserversRef.current.delete(currentIndex);
-                          resizeObserversRef.current.delete(index);
-                        }
-
-                        // Find the target span
-                        let targetSpan: HTMLElement | null = null;
-                        if (spanRef.current) {
-                          const spanAtCurrentIndex =
-                            spanRef.current.querySelector(
-                              `[data-char-index="${currentIndex}"]`,
-                            ) as HTMLElement | null;
-                          if (spanAtCurrentIndex) {
-                            targetSpan = spanAtCurrentIndex;
-                          }
-                        }
-
-                        // Fallback to closure span if it matches
-                        if (
-                          !targetSpan &&
-                          charSpan instanceof HTMLElement &&
-                          charSpan.textContent === finalDigit
-                        ) {
-                          const spanIndex =
-                            charSpan.getAttribute("data-char-index");
-                          if (spanIndex !== currentIndex.toString()) {
-                            charSpan.setAttribute(
-                              "data-char-index",
-                              currentIndex.toString(),
-                            );
-                          }
-                          targetSpan = charSpan;
-                        }
-
-                        // Clean up target span
-                        if (targetSpan instanceof HTMLElement) {
-                          cleanupWidthAnimation(targetSpan);
-                          removeTransparentColor(targetSpan);
-                          targetSpan.removeAttribute("data-flow");
-                          targetSpan.style.transition = "none";
-                        }
-
-                        // Safety cleanup for transparent span at current index
-                        if (!targetSpan && spanRef.current) {
-                          const spanAtCurrentIndex =
-                            spanRef.current.querySelector(
-                              `[data-char-index="${currentIndex}"]`,
-                            ) as HTMLElement | null;
-                          if (
-                            spanAtCurrentIndex &&
-                            isTransparent(spanAtCurrentIndex)
-                          ) {
-                            removeTransparentColor(spanAtCurrentIndex);
-                            spanAtCurrentIndex.removeAttribute("data-flow");
-                            spanAtCurrentIndex.style.transition = "none";
-                            cleanupWidthAnimation(spanAtCurrentIndex);
-                          }
-                        }
-
-                        wheel.remove();
-
-                        // Final safety check after DOM update
-                        requestAnimationFrame(() => {
-                          if (!spanRef.current) {
-                            return;
-                          }
-                          const spanAtCurrentIndex =
-                            spanRef.current.querySelector(
-                              `[data-char-index="${currentIndex}"]`,
-                            ) as HTMLElement | null;
-
-                          if (
-                            spanAtCurrentIndex &&
-                            isTransparent(spanAtCurrentIndex)
-                          ) {
-                            const parent = spanRef.current.parentElement;
-                            const hasBarrelWheel =
-                              parent && getBarrelWheel(parent, currentIndex);
-                            if (!hasBarrelWheel) {
-                              removeTransparentColor(spanAtCurrentIndex);
-                            }
-                          }
-                        });
-                      },
-                      { once: true },
-                    );
                   });
                 });
               });
@@ -3158,20 +3201,44 @@ export const NumberFlowInput = forwardRef<HTMLElement, NumberFlowInputProps>(
 
           spanRef.current.focus();
 
-          const restoreCursor = () => {
+          // History stores raw cursor positions (no separators). After the
+          // format effect rebuilds the DOM with separators we need to land
+          // the cursor at the FORMATTED equivalent — otherwise a raw index
+          // like 4 in "1,234" lands between the "3" and the "4".
+          const clampedRawPos = Math.min(cursorPos, historyItem.text.length);
+          const formattedText = formatRawValue(historyItem.text);
+          const formattedCursorPos = mapRawToFormattedIndex(
+            historyItem.text,
+            formattedText,
+            clampedRawPos,
+          );
+
+          // Run synchronously while the DOM still contains the plain raw
+          // text we just wrote (no [data-char-index] spans yet) — use the
+          // raw position so the cursor lands in a sane spot. The rAF call
+          // runs after React's commit phase and the format effect have
+          // rebuilt the spans, so we use the formatted position there.
+          const restoreCursorRaw = () => {
             if (!spanRef.current) {
               return;
             }
             spanRef.current.focus();
-            setCursorAtPosition(spanRef.current, cursorPos);
+            setCursorAtPosition(spanRef.current, clampedRawPos);
+          };
+          const restoreCursorFormatted = () => {
+            if (!spanRef.current) {
+              return;
+            }
+            spanRef.current.focus();
+            setCursorPositionInElement(spanRef.current, formattedCursorPos);
             isUndoRedoRef.current = false;
           };
 
-          restoreCursor();
-          requestAnimationFrame(restoreCursor);
+          restoreCursorRaw();
+          requestAnimationFrame(restoreCursorFormatted);
         }
       },
-      [onChange],
+      [onChange, formatRawValue, mapRawToFormattedIndex],
     );
 
     const applyHistoryItem = useCallback(
@@ -4175,6 +4242,7 @@ export const NumberFlowInput = forwardRef<HTMLElement, NumberFlowInputProps>(
           data-numberflow-input-root={""}
           style={{
             display: "inline-flex",
+            ...style,
           }}
         >
           <span
