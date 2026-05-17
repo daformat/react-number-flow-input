@@ -42,7 +42,6 @@ const css = `
   padding: var(--overflow-size);
   position: relative;
   overflow: hidden;
-  will-change: transform;
 }
 
 [data-numberflow-input-root] [data-numberflow-input-contenteditable] {
