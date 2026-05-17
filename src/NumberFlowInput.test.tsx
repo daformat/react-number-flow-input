@@ -3977,6 +3977,7 @@ describe("NumberFlowInput", () => {
     });
 
     it("autoFocus focuses the contentEditable on mount", () => {
+      // eslint-disable-next-line jsx-a11y/no-autofocus
       render(<NumberFlowInput autoFocus />);
       const input = getInput();
       expect(document.activeElement).toBe(input);
