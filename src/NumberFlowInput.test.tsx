@@ -3804,7 +3804,7 @@ describe("NumberFlowInput", () => {
     it("should apply name prop to hidden input", () => {
       render(<NumberFlowInput name="test-input" />);
       const hiddenInput = document.querySelector(
-        'input[type="string"]',
+        "input[data-numberflow-input-real-input]",
       ) as HTMLInputElement;
       expect(hiddenInput).toBeTruthy();
       expect(hiddenInput.name).toBe("test-input");
@@ -3813,7 +3813,7 @@ describe("NumberFlowInput", () => {
     it("should apply id prop to hidden input", () => {
       render(<NumberFlowInput id="test-input-id" />);
       const hiddenInput = document.querySelector(
-        'input[type="string"]',
+        "input[data-numberflow-input-real-input]",
       ) as HTMLInputElement;
       expect(hiddenInput).toBeTruthy();
       expect(hiddenInput.id).toBe("test-input-id");
@@ -4034,7 +4034,7 @@ describe("NumberFlowInput", () => {
         />,
       );
       const hidden = document.querySelector(
-        'input[type="string"]',
+        "input[data-numberflow-input-real-input]",
       ) as HTMLInputElement;
       expect(hidden.min).toBe("0");
       expect(hidden.max).toBe("100");
@@ -4045,7 +4045,7 @@ describe("NumberFlowInput", () => {
     it("forwards form/required to the hidden <input>", () => {
       render(<NumberFlowInput form="my-form" required name="x" />);
       const hidden = document.querySelector(
-        'input[type="string"]',
+        "input[data-numberflow-input-real-input]",
       ) as HTMLInputElement;
       expect(hidden.getAttribute("form")).toBe("my-form");
       expect(hidden.required).toBe(true);
