@@ -1,5 +1,11 @@
 # @daformat/react-number-flow-input
 
+## 1.0.6
+
+### Patch Changes
+
+- eda2f9b: fix: don't create a wheel when going from 0 to 0
+
 ## 1.0.5
 
 ### Patch Changes
