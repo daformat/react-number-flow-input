@@ -202,6 +202,105 @@ describe("NumberFlowInput", () => {
       );
       expect(digitSpans.length).toBeGreaterThanOrEqual(3);
     });
+
+    it("should insert a decimal in the middle (no format, no locale)", async () => {
+      const onChange = vi.fn();
+      render(<NumberFlowInput onChange={onChange} />);
+
+      const input = getInput();
+      input.focus();
+
+      await typeText(input, "12345");
+      await waitFor(() => {
+        expect(input.textContent).toBe("12345");
+      });
+
+      // Drop the caret between "2" and "3"
+      setCursorPosition(input, 2);
+      await typeText(input, ".");
+
+      await waitFor(() => {
+        expect(input.textContent).toBe("12.345");
+        expect(onChange).toHaveBeenLastCalledWith(12.345);
+      });
+    });
+
+    it("should insert a decimal in the middle (format=true, en-US) and replace the group separator", async () => {
+      const onChange = vi.fn();
+      render(<NumberFlowInput onChange={onChange} format />);
+
+      const input = getInput();
+      input.focus();
+
+      await typeText(input, "12345");
+      await waitFor(() => {
+        // 5 digits → grouped as "12,345"
+        expect(input.textContent).toBe("12,345");
+      });
+
+      // Formatted position 3 is right after the "," — i.e. visually
+      // between "2" and "3", which is raw position 2.
+      setCursorPosition(input, 3);
+      await typeText(input, ".");
+
+      await waitFor(() => {
+        // Once the value becomes 12.345 the group separator is no
+        // longer needed; only the decimal point remains.
+        expect(input.textContent).toBe("12.345");
+        expect(onChange).toHaveBeenLastCalledWith(12.345);
+      });
+    });
+
+    it("should insert a decimal in the middle (format=true, de-DE) accepting a comma", async () => {
+      const onChange = vi.fn();
+      render(<NumberFlowInput onChange={onChange} format locale="de-DE" />);
+
+      const input = getInput();
+      input.focus();
+
+      await typeText(input, "12345");
+      await waitFor(() => {
+        // de-DE uses "." as group separator
+        expect(input.textContent).toBe("12.345");
+      });
+
+      // Formatted position 3 is right after the "." group separator,
+      // i.e. visually between "2" and "3" / raw position 2.
+      setCursorPosition(input, 3);
+      // de-DE accepts "," as the decimal-point key
+      await typeText(input, ",");
+
+      await waitFor(() => {
+        // 12.345 in de-DE → "12,345" (decimal is now ",")
+        expect(input.textContent).toBe("12,345");
+        expect(onChange).toHaveBeenLastCalledWith(12.345);
+      });
+    });
+
+    it("should also accept '.' as the decimal key in a non-'.' locale (de-DE)", async () => {
+      const onChange = vi.fn();
+      render(<NumberFlowInput onChange={onChange} format locale="de-DE" />);
+
+      const input = getInput();
+      input.focus();
+
+      await typeText(input, "12345");
+      await waitFor(() => {
+        expect(input.textContent).toBe("12.345");
+      });
+
+      // Place caret between "2" and "3" (formatted pos 3, raw pos 2)
+      setCursorPosition(input, 3);
+      // Typing the JS-standard "." should be accepted too and inserted
+      // as the decimal — the displayed character flips to the locale
+      // decimal ",".
+      await typeText(input, ".");
+
+      await waitFor(() => {
+        expect(input.textContent).toBe("12,345");
+        expect(onChange).toHaveBeenLastCalledWith(12.345);
+      });
+    });
   });
 
   describe("Leading zero handling", () => {

@@ -120,7 +120,14 @@ export const formatValue = (
 };
 
 /**
- * Check if a character is a "raw" character (digit, decimal, or minus).
+ * Check if a character is a "raw" character (digit, decimal, or minus)
+ * within a string formatted with the given `localeDecimal`.
+ *
+ * Note: "." is NOT treated as raw unconditionally — it's only raw if
+ * `localeDecimal === "."`. In locales like de-DE where "." is the group
+ * separator and "," is the decimal, treating "." as raw would cause
+ * formatted-index → raw-index mapping to count the group separator as
+ * a digit, which mis-positions inserted characters.
  */
 export const isRawCharacter = (
   char: string | undefined,
@@ -129,5 +136,5 @@ export const isRawCharacter = (
   if (!char) {
     return false;
   }
-  return /[\d.\-]/.test(char) || char === localeDecimal;
+  return /[\d-]/.test(char) || char === localeDecimal;
 };

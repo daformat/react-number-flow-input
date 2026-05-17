@@ -199,6 +199,15 @@ export const NumberFlowInput = forwardRef<HTMLElement, NumberFlowInputProps>(
     // Track previous formatted value for change detection
     const prevFormattedValueRef = useRef(formattedDisplayValue);
 
+    // Decimal separator that was actually used to format the previous
+    // render's value. We mirror `separators.decimal` (which already
+    // accounts for both `format` and `locale`). Keeping it in a ref
+    // lets the format/locale-toggle effect read the OLD render's
+    // decimal even after `separators` has been recomputed for the new
+    // render, without resorting to a heuristic (.-vs-, count) that
+    // breaks for short values like "1.5" vs "1,5".
+    const prevDecimalRef = useRef(separators.decimal);
+
     // Undo/Redo history - stores cursor position before and after each change
     const historyRef = useRef<
       Array<{
@@ -2504,8 +2513,12 @@ export const NumberFlowInput = forwardRef<HTMLElement, NumberFlowInputProps>(
       const oldFormattedText = prevFormattedValueRef.current;
       const newFormattedText = formattedDisplayValue;
 
-      // Skip if no actual change
+      // Skip if no actual change. We still keep `prevDecimalRef` in sync
+      // with the current `separators.decimal` so a locale switch that
+      // happens to leave the text identical (e.g. an integer with no
+      // separators) doesn't leave the ref stale for the next toggle.
       if (oldFormattedText === newFormattedText) {
+        prevDecimalRef.current = separators.decimal;
         return;
       }
 
@@ -2514,9 +2527,7 @@ export const NumberFlowInput = forwardRef<HTMLElement, NumberFlowInputProps>(
       // visible width before any DOM mutation. The wrapper styles
       // (`styles.ts`) enforce `box-sizing: border-box`, so `offsetWidth`
       // is exactly the value we can plug into a WAA `width` keyframe.
-      const oldWrapperWidth = parentContainer
-        ? parentContainer.offsetWidth
-        : 0;
+      const oldWrapperWidth = parentContainer ? parentContainer.offsetWidth : 0;
 
       // Collect existing barrel wheels and their associated spans BEFORE any DOM changes
       // We'll update their indices and reposition them after the DOM is rebuilt
@@ -2581,15 +2592,21 @@ export const NumberFlowInput = forwardRef<HTMLElement, NumberFlowInputProps>(
       // Build maps of character positions for matching old -> new
       const oldDigitPositions = new Map<string, number[]>();
       const oldSeparatorPositions = new Map<string, number[]>();
-      const { decimal: localeDecimal } = separators;
 
-      // Helper to check if a char is "raw" (digit, decimal, or minus) for matching purposes
-      // This is different from the component's isRawChar because we need to consider
-      // both the old and new decimal separators
+      // The decimal separator for each text is determined deterministically
+      // by the `separators` we used to format it. The current render's
+      // decimal is `separators.decimal`; the previous render's is kept
+      // in `prevDecimalRef`. No string-content heuristics needed.
+      const newTextDecimal = separators.decimal;
+      const oldTextDecimal = prevDecimalRef.current;
+
+      // A char counts as "raw" (digit / decimal / minus) for matching
+      // purposes if it's a digit, a minus sign, or the decimal separator
+      // for *its* text. Group separators (e.g. "," in en-US, "." in
+      // de-DE) deliberately fall through and get bucketed as separators.
       const isRawCharForMatching = (
         char: string,
-        _text: string,
-        textDecimal: string | null,
+        textDecimal: string,
       ): boolean => {
         if (!char) {
           return false;
@@ -2597,99 +2614,25 @@ export const NumberFlowInput = forwardRef<HTMLElement, NumberFlowInputProps>(
         if (/[\d-]/.test(char)) {
           return true;
         }
-        if (char === ".") {
-          return true;
-        }
-        if (char === localeDecimal) {
-          return true;
-        }
-        // If the text uses this char as its decimal
-        if (textDecimal && char === textDecimal) {
-          return true;
-        }
-        return false;
+        return char === textDecimal;
       };
 
-      // Detect which decimal is used in each text
-      const detectDecimal = (text: string): string | null => {
-        // Count occurrences of possible decimals
-        let dotCount = 0;
-        let commaCount = 0;
-        for (const char of text) {
-          if (char === ".") {
-            dotCount++;
-          }
-          if (char === ",") {
-            commaCount++;
-          }
-        }
-        // A decimal separator appears at most once
-        // Group separators appear multiple times
-        if (dotCount === 1 && commaCount > 1) {
-          return ".";
-        } // e.g., "1,234.56"
-        if (commaCount === 1 && dotCount > 1) {
-          return ",";
-        } // e.g., "1.234,56" (German)
-        if (dotCount === 1 && commaCount === 0) {
-          return ".";
-        } // e.g., "1.56"
-        if (commaCount === 1 && dotCount === 0) {
-          return ",";
-        } // e.g., "1,56"
-        if (dotCount === 0 && commaCount === 0) {
-          return null;
-        } // no decimal
-        // If both appear once, assume the last one is decimal
-        const lastDot = text.lastIndexOf(".");
-        const lastComma = text.lastIndexOf(",");
-        if (lastDot > lastComma) {
-          return ".";
-        }
-        if (lastComma > lastDot) {
-          return ",";
-        }
-        return null;
-      };
-
-      const oldTextDecimal = detectDecimal(oldFormattedText);
-      const newTextDecimal = detectDecimal(newFormattedText);
-
-      // Helper to normalize decimal separators for matching
-      // Both "." and "," (when used as decimal) should be treated as the same character
+      // Normalize each text's own decimal separator to a sentinel so a
+      // locale switch (e.g. "1.5" → "1,5") still matches the decimal in
+      // the old text to the decimal in the new one. Group separators
+      // never match this since they're not equal to their text's
+      // decimal.
       const normalizeForMatching = (
         char: string,
-        textDecimal: string | null,
-      ): string => {
-        // If this char is the decimal for its text, normalize to "DECIMAL"
-        if (char === "." || char === textDecimal) {
-          // Check if it's actually a decimal (not a group separator)
-          if (char === "." && textDecimal === ".") {
-            return "DECIMAL";
-          }
-          if (char === "," && textDecimal === ",") {
-            return "DECIMAL";
-          }
-          if (char === "." && textDecimal === null) {
-            return "DECIMAL";
-          } // assume it's decimal
-          if (char === localeDecimal) {
-            return "DECIMAL";
-          }
-        }
-        return char;
-      };
+        textDecimal: string,
+      ): string => (char === textDecimal ? "DECIMAL" : char);
 
       for (let i = 0; i < oldFormattedText.length; i++) {
         const char = oldFormattedText[i] ?? "";
         if (!char) {
           continue;
         }
-        const isRaw = isRawCharForMatching(
-          char,
-          oldFormattedText,
-          oldTextDecimal,
-        );
+        const isRaw = isRawCharForMatching(char, oldTextDecimal);
         const map = isRaw ? oldDigitPositions : oldSeparatorPositions;
         const normalizedChar = normalizeForMatching(char, oldTextDecimal);
         if (!map.has(normalizedChar)) {
@@ -2711,11 +2654,7 @@ export const NumberFlowInput = forwardRef<HTMLElement, NumberFlowInputProps>(
           continue;
         }
 
-        const isRaw = isRawCharForMatching(
-          char,
-          newFormattedText,
-          newTextDecimal,
-        );
+        const isRaw = isRawCharForMatching(char, newTextDecimal);
         const posMap = isRaw ? oldDigitPositions : oldSeparatorPositions;
         const normalizedChar = normalizeForMatching(char, newTextDecimal);
         const oldIndices = posMap.get(normalizedChar) ?? [];
@@ -2738,11 +2677,7 @@ export const NumberFlowInput = forwardRef<HTMLElement, NumberFlowInputProps>(
           continue;
         }
 
-        const isRaw = isRawCharForMatching(
-          char,
-          oldFormattedText,
-          oldTextDecimal,
-        );
+        const isRaw = isRawCharForMatching(char, oldTextDecimal);
         if (!isRaw && !usedOldPositions.has(i)) {
           separatorsToRemove.push({ char, oldIndex: i });
         }
@@ -2768,11 +2703,7 @@ export const NumberFlowInput = forwardRef<HTMLElement, NumberFlowInputProps>(
           continue;
         }
 
-        const isRaw = isRawCharForMatching(
-          char,
-          newFormattedText,
-          newTextDecimal,
-        );
+        const isRaw = isRawCharForMatching(char, newTextDecimal);
         const isNewSeparator = !isRaw && !newToOldMapping.has(i);
 
         mergedItems.push({
@@ -3086,10 +3017,12 @@ export const NumberFlowInput = forwardRef<HTMLElement, NumberFlowInputProps>(
 
         // Animate in new separators (width from 0 to final + slide up)
         addedSeparatorSpans.forEach(({ span, finalWidth }) => {
-          span.setAttribute("data-show", "");
-          span.style.width = `${finalWidth}px`;
-          span.style.minWidth = `${finalWidth}px`;
-          span.style.maxWidth = `${finalWidth}px`;
+          requestAnimationFrame(() => {
+            span.setAttribute("data-show", "");
+            span.style.width = `${finalWidth}px`;
+            span.style.minWidth = `${finalWidth}px`;
+            span.style.maxWidth = `${finalWidth}px`;
+          });
 
           // Clean up inline styles after transition
           const handleTransitionEnd = (e: TransitionEvent) => {
@@ -3124,11 +3057,13 @@ export const NumberFlowInput = forwardRef<HTMLElement, NumberFlowInputProps>(
 
         // Animate out removed separators (width to 0 + slide down)
         removingSpans.forEach((span) => {
-          span.removeAttribute("data-show");
-          span.setAttribute("data-hide", "");
-          span.style.width = "0px";
-          span.style.minWidth = "0px";
-          span.style.maxWidth = "0px";
+          requestAnimationFrame(() => {
+            span.removeAttribute("data-show");
+            span.setAttribute("data-hide", "");
+            span.style.width = "0px";
+            span.style.minWidth = "0px";
+            span.style.maxWidth = "0px";
+          });
 
           // Remove after animation completes
           const handleTransitionEnd = (e: TransitionEvent) => {
@@ -3257,8 +3192,10 @@ export const NumberFlowInput = forwardRef<HTMLElement, NumberFlowInputProps>(
         }
       });
 
-      // Update the ref to match current formatted value
+      // Update the refs to match current formatted value & decimal so the
+      // next run of this effect knows what was used last time.
       prevFormattedValueRef.current = formattedDisplayValue;
+      prevDecimalRef.current = separators.decimal;
 
       // Only run when format or locale changes, not on initial mount
       // eslint-disable-next-line react-hooks/exhaustive-deps

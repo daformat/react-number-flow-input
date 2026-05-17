@@ -183,4 +183,11 @@ describe("isRawCharacter", () => {
     expect(isRawCharacter(" ", ".")).toBe(false);
     expect(isRawCharacter("a", ".")).toBe(false);
   });
+
+  it("does not treat '.' as raw when the locale decimal is ','", () => {
+    // In de-DE format the "." is the group separator and must be
+    // rejected; otherwise formatted→raw index mapping miscounts it as
+    // a digit and inserts (e.g.) a decimal at the wrong position.
+    expect(isRawCharacter(".", ",")).toBe(false);
+  });
 });
