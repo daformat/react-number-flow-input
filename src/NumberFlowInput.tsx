@@ -494,6 +494,123 @@ export const NumberFlowInput = forwardRef<HTMLElement, NumberFlowInputProps>(
       });
     }, []);
 
+    // Run the same cleanup the wheel's transitionend listener runs, but
+    // imperatively (called from the listener, and from
+    // `sweepSettledBarrelWheels` below). Reading everything we need off
+    // the wheel's attributes / refs means the function has no per-wheel
+    // closure dependencies, so it can be a stable callback.
+    const cleanupBarrelWheel = useCallback((wheel: HTMLElement) => {
+      const currentIndexStr = wheel.getAttribute("data-char-index");
+      if (currentIndexStr === null) {
+        wheel.remove();
+        return;
+      }
+      const currentIndex = parseInt(currentIndexStr, 10);
+
+      const observer = resizeObserversRef.current.get(currentIndex);
+      if (observer) {
+        observer.disconnect();
+        resizeObserversRef.current.delete(currentIndex);
+      }
+
+      const targetSpan =
+        (spanRef.current?.querySelector(
+          `[data-char-index="${currentIndex}"]`,
+        ) as HTMLElement | null) ?? null;
+
+      if (targetSpan) {
+        cleanupWidthAnimation(targetSpan);
+        removeTransparentColor(targetSpan);
+        targetSpan.removeAttribute("data-flow");
+        targetSpan.style.transition = "none";
+      }
+
+      wheel.remove();
+
+      requestAnimationFrame(() => {
+        if (!spanRef.current) {
+          return;
+        }
+        const spanAtCurrentIndex = spanRef.current.querySelector(
+          `[data-char-index="${currentIndex}"]`,
+        ) as HTMLElement | null;
+
+        if (spanAtCurrentIndex && isTransparent(spanAtCurrentIndex)) {
+          const parent = spanRef.current.parentElement;
+          const hasBarrelWheel = parent && getBarrelWheel(parent, currentIndex);
+          if (!hasBarrelWheel) {
+            removeTransparentColor(spanAtCurrentIndex);
+          }
+        }
+      });
+    }, []);
+
+    // Sweep any barrel wheels whose entrance animation is already
+    // finished and run their cleanup synchronously. This is a safety net
+    // for the case where a wheel's `transitionend` was never fired by
+    // the browser — e.g. when the consumer's CSS happens to animate a
+    // property we don't observe, or when an update preempts an in-flight
+    // animation and leaves a stale wheel behind.
+    //
+    // We do NOT rely on the wrapper's `--digit-position` value: that
+    // variable is set to its final position the moment the transition
+    // *starts*, so it can't distinguish "settled" from "currently
+    // animating toward that value".
+    //
+    // Instead each wheel stamps `data-anim-end-at` with the time
+    // (`performance.now()` ms) at which its animation is expected to
+    // finish, and we sweep only wheels past that deadline AND with no
+    // running animations on themselves or their descendants. The
+    // timestamp gate makes the sweep behave deterministically both in
+    // real browsers and in jsdom (where `getAnimations` returns an
+    // empty array regardless of what's actually running).
+    const sweepSettledBarrelWheels = useCallback(() => {
+      const parent = spanRef.current?.parentElement;
+      if (!parent) {
+        return;
+      }
+      const wheelEls = parent.querySelectorAll(
+        "[data-barrel-wheel]",
+      ) as NodeListOf<HTMLElement>;
+      if (wheelEls.length === 0) {
+        return;
+      }
+
+      const now = performance.now();
+      const supportsGetAnimations =
+        typeof (Element.prototype as unknown as { getAnimations?: unknown })
+          .getAnimations === "function";
+
+      wheelEls.forEach((wheel) => {
+        const endAtAttr = wheel.getAttribute("data-anim-end-at");
+        if (endAtAttr === null) {
+          // No deadline stamped yet — the wheel was just created on the
+          // previous frame and hasn't started animating; leave it alone.
+          return;
+        }
+        const endAt = parseFloat(endAtAttr);
+        if (Number.isFinite(endAt) && now < endAt) {
+          return;
+        }
+
+        if (supportsGetAnimations) {
+          const anims = (
+            wheel as HTMLElement & {
+              getAnimations: (opts?: { subtree?: boolean }) => Animation[];
+            }
+          ).getAnimations({ subtree: true });
+          const stillAnimating = anims.some(
+            (a) => a.playState === "running" || a.playState === "paused",
+          );
+          if (stillAnimating) {
+            return;
+          }
+        }
+
+        cleanupBarrelWheel(wheel);
+      });
+    }, [cleanupBarrelWheel]);
+
     const updateValue = useCallback(
       (
         newText: string,
@@ -517,6 +634,13 @@ export const NumberFlowInput = forwardRef<HTMLElement, NumberFlowInputProps>(
         if (isAllowed && !isAllowed(Number(newText))) {
           return;
         }
+
+        // Clean up any barrel wheels from a previous update that have
+        // already reached their final position. Otherwise a wheel whose
+        // transitionend never fired (e.g. because the consumer's CSS
+        // didn't animate any property we listen for) would ghost the
+        // underlying char span across the next update.
+        sweepSettledBarrelWheels();
 
         // Clean up stale width animations from fast typing
         if (spanRef.current) {
@@ -2041,6 +2165,12 @@ export const NumberFlowInput = forwardRef<HTMLElement, NumberFlowInputProps>(
                       "--digit-position",
                       newDigitStr ?? "",
                     );
+                    // Refresh the sweep deadline so a rapidly-replaced
+                    // wheel is given a fresh full duration to settle.
+                    existingWheel.setAttribute(
+                      "data-anim-end-at",
+                      (performance.now() + 400).toString(),
+                    );
                   });
 
                   const oldDigitWidth = oldDigitStr
@@ -2172,92 +2302,9 @@ export const NumberFlowInput = forwardRef<HTMLElement, NumberFlowInputProps>(
               // animation. All these transitions share the same 0.4s
               // duration so they land together; firing on the first one is
               // safe.
-              const handleWheelTransitionEnd = () => {
-                const currentIndexStr = wheel.getAttribute("data-char-index");
-                const currentIndex =
-                  currentIndexStr !== null
-                    ? parseInt(currentIndexStr, 10)
-                    : index;
-                const finalDigitAttr = wheel.getAttribute("data-final-digit");
-                const resolvedFinalDigit =
-                  finalDigitAttr !== null ? finalDigitAttr : newDigitStr;
-
-                const observer =
-                  resizeObserversRef.current.get(currentIndex) ||
-                  resizeObserversRef.current.get(index);
-                if (observer) {
-                  observer.disconnect();
-                  resizeObserversRef.current.delete(currentIndex);
-                  resizeObserversRef.current.delete(index);
-                }
-
-                let targetSpan: HTMLElement | null = null;
-                if (spanRef.current) {
-                  const spanAtCurrentIndex = spanRef.current.querySelector(
-                    `[data-char-index="${currentIndex}"]`,
-                  ) as HTMLElement | null;
-                  if (spanAtCurrentIndex) {
-                    targetSpan = spanAtCurrentIndex;
-                  }
-                }
-
-                if (
-                  !targetSpan &&
-                  charSpan instanceof HTMLElement &&
-                  charSpan.textContent === resolvedFinalDigit
-                ) {
-                  const spanIndex = charSpan.getAttribute("data-char-index");
-                  if (spanIndex !== currentIndex.toString()) {
-                    charSpan.setAttribute(
-                      "data-char-index",
-                      currentIndex.toString(),
-                    );
-                  }
-                  targetSpan = charSpan;
-                }
-
-                if (targetSpan instanceof HTMLElement) {
-                  cleanupWidthAnimation(targetSpan);
-                  removeTransparentColor(targetSpan);
-                  targetSpan.removeAttribute("data-flow");
-                  targetSpan.style.transition = "none";
-                }
-
-                if (!targetSpan && spanRef.current) {
-                  const spanAtCurrentIndex = spanRef.current.querySelector(
-                    `[data-char-index="${currentIndex}"]`,
-                  ) as HTMLElement | null;
-                  if (spanAtCurrentIndex && isTransparent(spanAtCurrentIndex)) {
-                    removeTransparentColor(spanAtCurrentIndex);
-                    spanAtCurrentIndex.removeAttribute("data-flow");
-                    spanAtCurrentIndex.style.transition = "none";
-                    cleanupWidthAnimation(spanAtCurrentIndex);
-                  }
-                }
-
-                wheel.remove();
-
-                requestAnimationFrame(() => {
-                  if (!spanRef.current) {
-                    return;
-                  }
-                  const spanAtCurrentIndex = spanRef.current.querySelector(
-                    `[data-char-index="${currentIndex}"]`,
-                  ) as HTMLElement | null;
-
-                  if (spanAtCurrentIndex && isTransparent(spanAtCurrentIndex)) {
-                    const parent = spanRef.current.parentElement;
-                    const hasBarrelWheel =
-                      parent && getBarrelWheel(parent, currentIndex);
-                    if (!hasBarrelWheel) {
-                      removeTransparentColor(spanAtCurrentIndex);
-                    }
-                  }
-                });
-              };
               wheel.addEventListener(
                 "transitionend",
-                handleWheelTransitionEnd,
+                () => cleanupBarrelWheel(wheel),
                 { once: true },
               );
 
@@ -2325,6 +2372,12 @@ export const NumberFlowInput = forwardRef<HTMLElement, NumberFlowInputProps>(
                     wrapper.style.setProperty(
                       "--digit-position",
                       finalPosition.toString(),
+                    );
+                    // Stamp the deadline used by `sweepSettledBarrelWheels`
+                    // — matches the nominal 0.4s digit-roll duration.
+                    wheel.setAttribute(
+                      "data-anim-end-at",
+                      (performance.now() + 400).toString(),
                     );
 
                     if (shouldAnimateWidth) {
@@ -2509,6 +2562,8 @@ export const NumberFlowInput = forwardRef<HTMLElement, NumberFlowInputProps>(
         mapRawToFormattedIndex,
         mapFormattedToRawIndex,
         computeSeparators,
+        cleanupBarrelWheel,
+        sweepSettledBarrelWheels,
       ],
     );
 
