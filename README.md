@@ -1,7 +1,7 @@
 # React number flow input
 
 [![NPM Version](https://img.shields.io/npm/v/%40daformat%2Freact-number-flow-input)](https://www.npmjs.com/package/@daformat/react-number-flow-input)
-[![NPM Downloads](https://img.shields.io/npm/dm/%40daformat%2Freact-number-flow-input)](https://www.npmjs.com/package/@daformat/react-number-flow-input)
+[![NPM Downloads](https://img.shields.io/npm/dm/%40daformat%2Freact-number-flow-input)](https://www.npmjs.com/package/@daformat/react-number-flow-input)  
 [![Follow daformat on GitHub](https://img.shields.io/github/followers/daformat?label=Follow%20%40daformat&style=social)](https://github.com/daformat)
 [![Follow daformat on X](https://img.shields.io/twitter/follow/daformat?label=Follow%20%40daformat&style=social)](https://twitter.com/daformat)
 
