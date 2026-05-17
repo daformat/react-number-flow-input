@@ -1,5 +1,11 @@
 # @daformat/react-number-flow-input
 
+## 1.0.7
+
+### Patch Changes
+
+- cee874c: fix: sweep settled wheels on rerender
+
 ## 1.0.6
 
 ### Patch Changes
