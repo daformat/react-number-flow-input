@@ -1,5 +1,11 @@
 # @daformat/react-number-flow-input
 
+## 1.0.1
+
+### Patch Changes
+
+- 616be99: fix: prevent animating when replacing with same digit
+
 ## 1.0.0
 
 ### Major Changes
