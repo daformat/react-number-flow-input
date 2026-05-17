@@ -18,15 +18,21 @@ export const temporarilyRemoveAncestorsTransform = (
   >();
   let parent = element.parentElement;
   while (parent) {
-    const transform = parent.style.transform;
-    const scale = parent.style.scale;
-    const rotate = parent.style.rotate;
-    const translate = parent.style.translate;
-    cache.set(parent, { transform, scale, rotate, translate });
-    parent.style.transform = "none";
-    parent.style.scale = "1";
-    parent.style.rotate = "0deg";
-    parent.style.translate = "0 0";
+    const computedStyle = window.getComputedStyle(parent);
+    const transform = computedStyle.transform;
+    const scale = computedStyle.scale;
+    const rotate = computedStyle.rotate;
+    const translate = computedStyle.translate;
+    const hasAny = [transform, scale, rotate, translate].some(
+      (v) => v !== "none",
+    );
+    if (hasAny) {
+      cache.set(parent, { transform, scale, rotate, translate });
+      parent.style.transform = "none";
+      parent.style.scale = "1";
+      parent.style.rotate = "0deg";
+      parent.style.translate = "0 0";
+    }
     parent = parent.parentElement;
   }
   return () => {

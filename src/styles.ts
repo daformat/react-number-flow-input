@@ -5,9 +5,32 @@ const STYLE_ID = "daformat-react-number-flow-input-styles";
 const easeOutCubic = cssEasing["--ease-out-cubic"];
 
 const css = `
+[data-numberflow-input-root] {
+  /* Establish a stacking context so the browser can composite the whole
+     input subtree into its own layer without intermixing with surrounding
+     page paint. We deliberately do NOT add 'contain: paint' here: the
+     wrapper below uses a negative margin to bleed its mask-image fade
+     past the root's content box, and paint containment on the root would
+     clip that bleed. */
+  isolation: isolate;
+}
+
 [data-numberflow-input-root] [data-numberflow-input-wrapper] {
   --overflow-size: 0.2em;
   
+  /* CSS containment scoped to the wrapper:
+     - 'layout' isolates internal layout: digit width tweens, barrel-wheel
+       insertions/removals and DOM shuffling cannot trigger reflow outside
+       this box. The wrapper itself still resizes to fit its contents
+       because containment only affects *internal* propagation, not the
+       element's own intrinsic size.
+     - 'paint' clips painting to the wrapper bounds, which is already what
+       the mask-image + overflow:hidden achieve visually. The added value
+       is that the compositor can skip per-frame invalidations of
+       surrounding page chrome when digits translate/scale/roll.
+     We intentionally avoid 'size' containment because the input must
+     grow and shrink as the user types. */
+  contain: layout paint;
   margin: calc(var(--overflow-size) * -1);
   mask-image: linear-gradient(
     to bottom,
@@ -18,11 +41,19 @@ const css = `
   );
   padding: var(--overflow-size);
   position: relative;
+  overflow: hidden;
+  will-change: transform;
 }
 
 [data-numberflow-input-root] [data-numberflow-input-contenteditable] {
   display: inline-block;
   outline: none;
+  /* Layout containment as a secondary hint: insertions/removals of digit
+     spans (and their width tweens) don't propagate layout beyond the
+     contenteditable's own outer box. We don't add paint containment here
+     because barrel wheels are SIBLINGS of the contenteditable (not
+     descendants) and must not be clipped to it. */
+  contain: layout;
 }
 
 [data-numberflow-input-root] [data-numberflow-input-contenteditable] span {
