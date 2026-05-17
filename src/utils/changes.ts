@@ -319,7 +319,10 @@ export const getFormattedChanges = (
  * Build a barrel-wheel sequence + direction for a digit-to-digit transition.
  * @internal
  */
-const buildBarrelWheel = (oldChar: string, newChar: string): BarrelWheelData => {
+const buildBarrelWheel = (
+  oldChar: string,
+  newChar: string,
+): BarrelWheelData => {
   const oldDigit = parseInt(oldChar, 10);
   const newDigit = parseInt(newChar, 10);
   const direction: "up" | "down" = newDigit > oldDigit ? "up" : "down";
