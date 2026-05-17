@@ -2924,6 +2924,25 @@ describe("NumberFlowInput", () => {
           fireEvent.transitionEnd(el, { propertyName: "max-width" });
           fireEvent.transitionEnd(el, { propertyName: "translate" });
         });
+
+        // Barrel wheels live in the input's parent container; their
+        // cleanup listener is on the digits-wrapper inside each wheel. In
+        // jsdom CSS transitions don't run naturally, so we have to drive
+        // these transitionend events ourselves or the wheel cleanup that
+        // un-hides the underlying char span never fires.
+        const parent = input.parentElement;
+        if (parent) {
+          parent.querySelectorAll("[data-barrel-wheel]").forEach((wheel) => {
+            const wrapper = wheel.querySelector(
+              "[data-barrel-wheel-digits-wrapper]",
+            );
+            if (wrapper) {
+              fireEvent.transitionEnd(wrapper, {
+                propertyName: "--digit-position",
+              });
+            }
+          });
+        }
       };
 
       it("renders correct formatted text and span layout when value goes from undefined → 9973462 with format", async () => {
@@ -3143,6 +3162,115 @@ describe("NumberFlowInput", () => {
           expect(span.getAttribute("data-char-index")).toBe(i.toString());
           expect(span.textContent).toBe("9,973,462"[i]);
         });
+      });
+
+      it("preserves all separators when shrinking from 8 digits to 6 digits (95975328 → 312938)", async () => {
+        const { rerender } = render(
+          <NumberFlowInput value={95975328} format />,
+        );
+        const input = getInput();
+        expect(input.textContent).toBe("95,975,328");
+
+        rerender(<NumberFlowInput value={312938} format />);
+
+        await new Promise((resolve) => setTimeout(resolve, 50));
+        fireAllTransitions(input);
+
+        await waitFor(() => {
+          // Without the fix the second comma got swallowed and a stray
+          // digit appeared, producing "3129389" instead of "312,938".
+          expect(input.textContent).toBe("312,938");
+        });
+
+        const spans = getRenderedSpans(input);
+        expect(spans).toHaveLength("312,938".length);
+        expect(getRenderedText(input)).toBe("312,938");
+        spans.forEach((span, i) => {
+          expect(span.getAttribute("data-char-index")).toBe(i.toString());
+          expect(span.textContent).toBe("312,938"[i]);
+        });
+      });
+
+      it("clears stale transparency on rapid prop changes (no invisible chars)", async () => {
+        // Simulates a "randomize" button that fires several updates with
+        // little time between them; previously the underlying char span
+        // could be left at color:transparent when an interrupted wheel's
+        // cleanup ran against the wrong target.
+        const { rerender } = render(<NumberFlowInput value={141332} format />);
+        const input = getInput();
+        expect(input.textContent).toBe("141,332");
+
+        const sequence = [12345678, 9876543, 53185337, 999999, 53185337];
+        for (const v of sequence) {
+          rerender(<NumberFlowInput value={v} format />);
+          await new Promise((resolve) => setTimeout(resolve, 8));
+        }
+
+        await new Promise((resolve) => setTimeout(resolve, 100));
+        fireAllTransitions(input);
+        // Run another frame's worth of cleanups after transitions fire.
+        await new Promise((resolve) => setTimeout(resolve, 50));
+
+        const spans = getRenderedSpans(input);
+        // No span should be stuck at color:transparent after everything
+        // has settled.
+        spans.forEach((span) => {
+          expect(span.style.color).not.toBe("transparent");
+          expect(span.style.color).not.toBe("rgba(0, 0, 0, 0)");
+        });
+        expect(getRenderedText(input)).toBe("53,185,337");
+      });
+
+      it("drops ghost trailing spans when shrinking during rapid prop changes", async () => {
+        // Simulates a "randomize" button that swaps in/out a value that
+        // is shorter than the previous one before the previous wheels
+        // finish. Trailing transparent spans from the longer value used
+        // to be kept by cleanup (treated as "still animating") and would
+        // re-appear as ghost characters once a stray wheel cleanup
+        // un-hid them.
+        const { rerender } = render(<NumberFlowInput value={417969} format />);
+        const input = getInput();
+        expect(input.textContent).toBe("417,969");
+
+        // First swap up to a value that's noticeably longer (10 chars
+        // formatted) so we definitely have spans at indices 7+.
+        const sequence = [12345678, 95975328, 265066];
+        for (const v of sequence) {
+          rerender(<NumberFlowInput value={v} format />);
+          await new Promise((resolve) => setTimeout(resolve, 8));
+        }
+
+        await new Promise((resolve) => setTimeout(resolve, 100));
+        fireAllTransitions(input);
+        await new Promise((resolve) => setTimeout(resolve, 50));
+
+        // After everything settles the contenteditable must contain
+        // exactly the spans for "265,066" — no transparent ghosts at
+        // indices 7-9 left over from the 8-digit values above.
+        const spans = getRenderedSpans(input);
+        expect(spans).toHaveLength("265,066".length);
+        expect(getRenderedText(input)).toBe("265,066");
+        spans.forEach((span, i) => {
+          expect(span.getAttribute("data-char-index")).toBe(i.toString());
+          expect(span.textContent).toBe("265,066"[i]);
+          expect(span.style.color).not.toBe("transparent");
+          expect(span.style.color).not.toBe("rgba(0, 0, 0, 0)");
+        });
+
+        // And no stale barrel wheels at out-of-bounds indices either.
+        const parent = input.parentElement;
+        if (parent) {
+          const wheels = parent.querySelectorAll(
+            "[data-barrel-wheel][data-char-index]",
+          );
+          wheels.forEach((wheel) => {
+            const idx = parseInt(
+              wheel.getAttribute("data-char-index") ?? "-1",
+              10,
+            );
+            expect(idx).toBeLessThan("265,066".length);
+          });
+        }
       });
 
       it("renders correctly when only some barrel wheels complete before next render", async () => {

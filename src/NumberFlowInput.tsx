@@ -1122,6 +1122,15 @@ export const NumberFlowInput = forwardRef<HTMLElement, NumberFlowInputProps>(
                   span.removeAttribute("data-show");
                 }
 
+                // Clear any leftover transparency from a previous render's
+                // barrel wheel: this span is being reused at a position that
+                // does NOT have a new wheel (barrelWheel is falsy in this
+                // branch), so it must be visible. Stale transparency can
+                // appear when rapid prop changes interrupt wheel cleanup.
+                if (!barrelWheel && isTransparent(span)) {
+                  removeTransparentColor(span);
+                }
+
                 usedSpans.add(span);
                 // Move to correct position if needed, preserving any ongoing animations
                 if (referenceNode) {
@@ -1420,27 +1429,37 @@ export const NumberFlowInput = forwardRef<HTMLElement, NumberFlowInputProps>(
                     }
                     referenceNode = span;
                   } else {
-                    // Check if there's a transparent span at this index that should be preserved
-                    // This handles the case where a transparent span was shifted from a previous index
-                    // when we inserted a character before the animating digit
+                    // Reach this branch when the existing span at this
+                    // position is transparent (isHidden) but neither this
+                    // position nor any other wheel in the DOM matches its
+                    // content (all of hasBarrelWheel / hasBarrelWheelInDOM /
+                    // hasMatchingBarrelWheel were false — otherwise we would
+                    // have taken `shouldReuseTransparentSpan` above).
+                    //
+                    // That means the transparency is *orphaned* — left
+                    // behind by a previous render's wheel whose cleanup
+                    // never landed on this span (rapid prop changes or
+                    // index reshuffles can do this). Reuse the span but
+                    // clear its color so the underlying character is
+                    // visible; if this position truly has a new wheel, the
+                    // wheel-creation code below will re-hide it.
                     if (
                       isHidden &&
                       existingSpan &&
                       !usedSpans.has(existingSpan)
                     ) {
-                      // This is a transparent span - it's part of an ongoing barrel wheel animation
-                      // Reuse it instead of creating a new one
                       span = existingSpan;
-                      // Update textContent if needed (should match the final digit)
                       if (span.textContent !== char) {
                         span.textContent = char ?? "";
                       }
-                      // Ensure data-char-index is correct
                       span.setAttribute("data-char-index", i.toString());
-                      // Keep it transparent (barrel wheel is still animating)
-                      span.style.color = "transparent";
-                      // Don't set data-flow (barrel wheel handles it)
-                      span.removeAttribute("data-flow");
+                      removeTransparentColor(span);
+                      cleanupWidthAnimation(span);
+                      if (!barrelWheel) {
+                        span.setAttribute("data-flow", "");
+                      } else {
+                        span.removeAttribute("data-flow");
+                      }
                       if (isUnchanged) {
                         span.setAttribute("data-show", "");
                       } else {
@@ -1557,23 +1576,48 @@ export const NumberFlowInput = forwardRef<HTMLElement, NumberFlowInputProps>(
                   index,
                 );
                 // Only consider a barrel-wheel match if this span actually
-                // holds a digit; otherwise a separator can collide with an
-                // adjacent digit's barrel-wheel raw index.
+                // holds a digit AND the new formatted character at this
+                // position is also a digit. Otherwise a stale digit span
+                // sitting at a position that is now a separator (or out of
+                // bounds) can collide with an adjacent digit's raw barrel
+                // wheel index and incorrectly survive cleanup.
                 const spanIsDigit = /^\d$/.test(span.textContent ?? "");
+                const newCharAtIndex = newFormattedText[index];
+                const newCharIsDigit =
+                  newCharAtIndex !== undefined && /^\d$/.test(newCharAtIndex);
                 const hasBarrelWheel =
-                  (spanIsDigit && changes.barrelWheelIndices.has(rawIdx)) ||
+                  (spanIsDigit &&
+                    newCharIsDigit &&
+                    changes.barrelWheelIndices.has(rawIdx)) ||
                   !!hasBarrelWheelInDOM;
                 const hasWidthAnimation =
                   span.hasAttribute("data-width-animate");
+                // `isHidden` alone is NOT a reason to keep a span: a span
+                // can be left transparent by an interrupted wheel from a
+                // previous render whose cleanup landed on a different
+                // span. Only true ongoing animations should pin the span
+                // in place.
                 const isCurrentlyAnimating =
-                  hasBarrelWheel || hasWidthAnimation || isHidden;
+                  hasBarrelWheel || hasWidthAnimation;
+                const isOutOfBounds = index >= newFormattedText.length;
 
                 // If text is empty, remove all spans regardless of animation state
                 // This handles the case where user selects all and deletes
                 if (newFormattedText.length === 0) {
                   span.remove();
+                } else if (isOutOfBounds) {
+                  // Out-of-bounds unused spans are always ghosts. If a
+                  // wheel still references this index, drop it too so the
+                  // wheel doesn't try to un-hide a now-removed span (or
+                  // worse, a different span that happens to land here
+                  // later).
+                  if (hasBarrelWheelInDOM) {
+                    hasBarrelWheelInDOM.remove();
+                    resizeObserversRef.current.get(index)?.disconnect();
+                    resizeObserversRef.current.delete(index);
+                  }
+                  span.remove();
                 } else if (!isCurrentlyAnimating) {
-                  // Only remove if not currently animating
                   span.remove();
                 }
               }
@@ -1623,8 +1667,12 @@ export const NumberFlowInput = forwardRef<HTMLElement, NumberFlowInputProps>(
                 // Find the span that should be kept
                 let spanToKeep: HTMLElement | null = null;
 
-                // First, try to find one that matches the expected character
-                const expectedChar = cleanedText[index];
+                // First, try to find one that matches the expected character.
+                // The lookup uses the FORMATTED text (not the raw text) since
+                // `index` is a formatted-string index. Mixing them up causes a
+                // stale digit span sitting at a separator's position to be
+                // preferred over the correctly-placed separator span.
+                const expectedChar = newFormattedText[index];
                 for (const span of spans) {
                   if (span.textContent === expectedChar) {
                     const isHidden =
@@ -1713,8 +1761,12 @@ export const NumberFlowInput = forwardRef<HTMLElement, NumberFlowInputProps>(
                 (spanIsDigit && changes.barrelWheelIndices.has(rawIdx)) ||
                 !!hasBarrelWheelInDOM;
               const hasWidthAnimation = span.hasAttribute("data-width-animate");
-              const isCurrentlyAnimating =
-                hasBarrelWheel || hasWidthAnimation || isHidden;
+              // `isHidden` is intentionally NOT part of the "animating"
+              // determination here. An interrupted wheel from a previous
+              // render can leave a span at color:transparent without any
+              // active wheel/width animation; that orphan transparency
+              // shouldn't pin a stale span in the DOM.
+              const isCurrentlyAnimating = hasBarrelWheel || hasWidthAnimation;
 
               // If text is empty, remove all spans
               if (newFormattedText.length === 0) {
@@ -1722,15 +1774,21 @@ export const NumberFlowInput = forwardRef<HTMLElement, NumberFlowInputProps>(
                 return;
               }
 
-              // Remove if index is out of bounds
-              // For short newFormattedText (like "-"), we should be more aggressive about removing out-of-bounds spans
-              // to prevent ghost characters
+              // Remove if index is out of bounds. When the value shrinks
+              // (e.g. 8 digits → 6 digits during fast prop swaps), trailing
+              // spans get left behind at indices that no longer exist; if
+              // they were also transparent the previous heuristic kept
+              // them around as "animating" and they reappeared as ghost
+              // chars once a wheel cleanup eventually un-hid them. Drop
+              // them — and any orphan wheel that still points at this
+              // index — unconditionally.
               if (index < 0 || index >= newFormattedText.length) {
-                // Remove out-of-bounds spans unless they're currently animating AND newFormattedText is long enough
-                // This prevents ghost characters when newFormattedText changes significantly (e.g., "1881" -> "-")
-                if (!isCurrentlyAnimating || newFormattedText.length <= 1) {
-                  span.remove();
+                if (hasBarrelWheelInDOM) {
+                  hasBarrelWheelInDOM.remove();
+                  resizeObserversRef.current.get(index)?.disconnect();
+                  resizeObserversRef.current.delete(index);
                 }
+                span.remove();
               } else if (span.textContent !== newFormattedText[index]) {
                 // Character mismatch - update or remove
                 // If it's a transparent span with wrong character and no barrel wheel, it's a ghost - remove it
@@ -1798,6 +1856,55 @@ export const NumberFlowInput = forwardRef<HTMLElement, NumberFlowInputProps>(
             const barrelWheelIndices = Array.from(
               changes.barrelWheelIndices.keys(),
             );
+
+            // During rapid prop changes a previous render's wheel can be
+            // left running at a formatted index that this update has no
+            // transition for. The reuse path below only touches wheels
+            // whose index matches one of this update's barrelWheelIndices;
+            // everything else keeps spinning to its (now stale) final
+            // digit, overlapping the new transition visually (multiple
+            // ghosted digits/separators piling up during a spam click).
+            // Finalize and remove those orphan wheels here so only the
+            // current update's wheel cohort is active.
+            // Only snap orphans when this update actually introduces a
+            // new wheel cohort. An "uneventful" update (no transitions of
+            // its own — e.g. a re-render that doesn't change the value)
+            // must leave existing wheels alone or it would kill the
+            // animation that the previous update just started.
+            const wheelSnapParent = spanRef.current?.parentElement;
+            if (barrelWheelIndices.length > 0 && wheelSnapParent) {
+              const intendedFormattedIndices = new Set<number>();
+              for (const rawIdx of barrelWheelIndices) {
+                intendedFormattedIndices.add(
+                  mapRawToFormattedIndex(cleanedText, newFormattedText, rawIdx),
+                );
+              }
+              const allExistingWheels = wheelSnapParent.querySelectorAll(
+                "[data-barrel-wheel][data-char-index]",
+              );
+              allExistingWheels.forEach((wheel) => {
+                const wheelEl = wheel as HTMLElement;
+                const idxStr = wheelEl.getAttribute("data-char-index");
+                if (idxStr === null) {
+                  return;
+                }
+                const idx = parseInt(idxStr, 10);
+                if (intendedFormattedIndices.has(idx)) {
+                  return;
+                }
+                const charSpan = spanRef.current?.querySelector(
+                  `[data-char-index="${idx}"]`,
+                ) as HTMLElement | null;
+                if (charSpan) {
+                  removeTransparentColor(charSpan);
+                  cleanupWidthAnimation(charSpan);
+                }
+                resizeObserversRef.current.get(idx)?.disconnect();
+                resizeObserversRef.current.delete(idx);
+                wheelEl.remove();
+              });
+            }
+
             const cleanup = temporarilyRemoveAncestorsTransform(
               spanRef.current,
             );
@@ -1946,6 +2053,37 @@ export const NumberFlowInput = forwardRef<HTMLElement, NumberFlowInputProps>(
               wheel.style.display = "flex";
               repositionBarrelWheel(wheel, charSpan, parentContainer);
 
+              // Continuously align the wheel with its underlying span for
+              // the whole lifetime of the wheel. Surrounding spans may grow
+              // (data-flow), shrink, or shift (positionChanges) during the
+              // animation — none of which trigger a resize on the wheel's
+              // own charSpan, so a ResizeObserver alone is not enough. The
+              // loop self-terminates as soon as the wheel is removed from
+              // the DOM (transitionend handler calls `wheel.remove()`).
+              const trackWheelPosition = () => {
+                if (!wheel.isConnected) {
+                  return;
+                }
+                if (
+                  !charSpan.isConnected ||
+                  !spanRef.current?.parentElement
+                ) {
+                  requestAnimationFrame(trackWheelPosition);
+                  return;
+                }
+                const parent = spanRef.current.parentElement;
+                const trCleanup = temporarilyRemoveAncestorsTransform(charSpan);
+                const rect = charSpan.getBoundingClientRect();
+                const parentRect = parent.getBoundingClientRect();
+                wheel.style.left = `${rect.left - parentRect.left}px`;
+                wheel.style.top = `${rect.top - parentRect.top}px`;
+                wheel.style.width = `${rect.width}px`;
+                wheel.style.height = `${rect.height}px`;
+                trCleanup();
+                requestAnimationFrame(trackWheelPosition);
+              };
+              requestAnimationFrame(trackWheelPosition);
+
               requestAnimationFrame(() => {
                 // Verify width constraints are still set
                 if (oldDigitWidth > 0 && newDigitWidth > 0) {
@@ -2043,8 +2181,12 @@ export const NumberFlowInput = forwardRef<HTMLElement, NumberFlowInputProps>(
                           transition === "none" ||
                           transition === "all 0s ease 0s"
                         ) {
+                          // Match the data-width-animate CSS rule and the
+                          // barrel wheel's digit-roll transition so the
+                          // underlying char animates in lockstep with the
+                          // wheel (same duration + easing).
                           charSpan.style.transition =
-                            "width 0.4s cubic-bezier(0.4, 0, 0.2, 1), min-width 0.4s cubic-bezier(0.4, 0, 0.2, 1), max-width 0.4s cubic-bezier(0.4, 0, 0.2, 1)";
+                            "width 0.4s cubic-bezier(.215, .61, .355, 1), min-width 0.4s cubic-bezier(.215, .61, .355, 1), max-width 0.4s cubic-bezier(.215, .61, .355, 1)";
                           void charSpan.offsetWidth;
                         }
 
@@ -2789,8 +2931,8 @@ export const NumberFlowInput = forwardRef<HTMLElement, NumberFlowInputProps>(
                   { transform: "translateX(0)" },
                 ],
                 {
-                  duration: 200,
-                  easing: "cubic-bezier(0.33, 1, 0.68, 1)",
+                  duration: 400,
+                  easing: "cubic-bezier(.215, .61, .355, 1)",
                   fill: "forwards",
                 },
               );
@@ -2949,7 +3091,11 @@ export const NumberFlowInput = forwardRef<HTMLElement, NumberFlowInputProps>(
               wheel.style.width = `${spanWidth}px`;
               wheel.style.height = `${spanRect.height}px`;
 
-              // Animate x position if there's a significant change
+              // Animate x position if there's a significant change.
+              // Match the digit-roll + data-width-animate timing (0.4s
+              // ease-out-cubic) so the wheel reaches its final position at
+              // the same moment the underlying span settles, avoiding any
+              // visual jump when the wheel is removed.
               if (Math.abs(offsetX) > 1) {
                 wheel.animate(
                   [
@@ -2957,8 +3103,8 @@ export const NumberFlowInput = forwardRef<HTMLElement, NumberFlowInputProps>(
                     { transform: "translateX(0)" },
                   ],
                   {
-                    duration: 200,
-                    easing: "cubic-bezier(0.33, 1, 0.68, 1)", // ease-out-cubic
+                    duration: 400,
+                    easing: "cubic-bezier(.215, .61, .355, 1)",
                     fill: "forwards",
                   },
                 );
