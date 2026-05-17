@@ -1,5 +1,11 @@
 # @daformat/react-number-flow-input
 
+## 1.0.4
+
+### Patch Changes
+
+- 03fca8b: fix: improve separator handling and hot swapping locale
+
 ## 1.0.3
 
 ### Patch Changes
