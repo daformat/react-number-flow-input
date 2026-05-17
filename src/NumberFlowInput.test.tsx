@@ -1,7 +1,9 @@
 import { fireEvent, render, waitFor } from "@testing-library/react";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { useState } from "react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { NumberFlowInput } from "./NumberFlowInput.js";
+import { setDefaultLocale } from "./test/setup.js";
 
 // Helper to get the contentEditable element
 const getInput = () => {
@@ -4307,6 +4309,273 @@ describe("NumberFlowInput", () => {
       await waitFor(() => {
         // Should now use comma as decimal separator
         expect(input.textContent).toBe("1234,56");
+      });
+    });
+
+    it("should handle locale switch followed by external value change (no stale separators)", async () => {
+      const onChange = vi.fn();
+      const { rerender } = render(
+        <NumberFlowInput onChange={onChange} format value={123456.78} />,
+      );
+
+      const input = getInput();
+
+      // Initially en-US with format → "123,456.78"
+      await waitFor(() => {
+        expect(input.textContent).toBe("123,456.78");
+      });
+
+      // Switch locale to de-DE without touching the value. The cached
+      // formatted text was "123,456.78" (en-US decimal "." and group ",");
+      // after the switch it must become "123.456,78" (de-DE decimal ","
+      // and group ".").
+      rerender(
+        <NumberFlowInput
+          onChange={onChange}
+          format
+          locale="de-DE"
+          value={123456.78}
+        />,
+      );
+
+      // Let the format-toggle effect run its rAF cycle, then settle any
+      // pending CSS transitions that JSDOM doesn't fire on its own.
+      await new Promise((resolve) => setTimeout(resolve, 50));
+      fireTransitionEndEvents(input);
+
+      await waitFor(() => {
+        expect(input.textContent).toBe("123.456,78");
+      });
+
+      // Now change the value externally. If anything in the diff pipeline
+      // is still holding the old (en-US) separators, the new formatted
+      // text won't line up with the previous one and the resulting DOM
+      // will diverge from the expected "234.567,89".
+      rerender(
+        <NumberFlowInput
+          onChange={onChange}
+          format
+          locale="de-DE"
+          value={234567.89}
+        />,
+      );
+
+      await new Promise((resolve) => setTimeout(resolve, 50));
+      fireTransitionEndEvents(input);
+
+      await waitFor(() => {
+        expect(input.textContent).toBe("234.567,89");
+      });
+
+      // Verify the span structure matches the formatted text exactly —
+      // one span per character, indices contiguous, no leftover spans
+      // from the old locale's "123,456.78" formatting still floating
+      // around. A stale separator would manifest as a mismatch here.
+      const spans = Array.from(
+        input.querySelectorAll("[data-char-index]"),
+      ) as HTMLElement[];
+      const expected = "234.567,89";
+      expect(spans).toHaveLength(expected.length);
+      spans.forEach((span, i) => {
+        expect(span.textContent).toBe(expected[i]);
+        expect(span.getAttribute("data-char-index")).toBe(String(i));
+      });
+    });
+
+    describe("when the browser locale changes at runtime", () => {
+      // The `locale` prop is intentionally omitted in these tests — we
+      // want the component to read the browser default locale (which we
+      // mutate via the helper from test/setup.ts to simulate Chrome's
+      // "Sensors → Locale" panel or a user switching their system
+      // locale).
+      afterEach(() => {
+        setDefaultLocale("en-US");
+      });
+
+      it("should pick up the new browser locale on the next value change", async () => {
+        const onChange = vi.fn();
+        const { rerender } = render(
+          <NumberFlowInput onChange={onChange} format value={123456.78} />,
+        );
+        const input = getInput();
+
+        // Initially en-US: "123,456.78"
+        await waitFor(() => {
+          expect(input.textContent).toBe("123,456.78");
+        });
+
+        // Browser flips to de-DE. The component doesn't re-render on
+        // its own (no prop changed), but the next time something else
+        // triggers a render, formatValue should pick up the new
+        // browser default.
+        setDefaultLocale("de-DE");
+
+        // Push a new value to force a re-render. In de-DE:
+        // "234.567,89" (group "." and decimal ",").
+        rerender(
+          <NumberFlowInput onChange={onChange} format value={234567.89} />,
+        );
+
+        await new Promise((resolve) => setTimeout(resolve, 50));
+        fireTransitionEndEvents(input);
+
+        await waitFor(() => {
+          expect(input.textContent).toBe("234.567,89");
+        });
+
+        // And the underlying span structure must match — no leftover
+        // separators from the en-US formatting (a stale `,` or `.`
+        // would surface here as a mismatched textContent or extra span).
+        const spans = Array.from(
+          input.querySelectorAll("[data-char-index]"),
+        ) as HTMLElement[];
+        const expected = "234.567,89";
+        expect(spans).toHaveLength(expected.length);
+        spans.forEach((span, i) => {
+          expect(span.textContent).toBe(expected[i]);
+          expect(span.getAttribute("data-char-index")).toBe(String(i));
+        });
+      });
+
+      it("should handle typed input followed by browser locale change and external value change", async () => {
+        // This reproduces the user-reported bug:
+        //   1. en-US (default), format=true, type "123456.78" → "123,456.78"
+        //   2. Browser locale flips to de-DE.
+        //   3. Parent randomizes value to 92392755.99 (a different magnitude).
+        // The DOM must converge on the de-DE formatted representation
+        // ("92.392.755,99"), not some half-converted string that mixes
+        // stale en-US separators with new digits.
+        const Wrapper = () => {
+          const [value, setValue] = useState<number | undefined>(undefined);
+          return (
+            <>
+              <NumberFlowInput
+                format
+                value={value}
+                onChange={(v) => setValue(v)}
+              />
+              <button
+                type="button"
+                data-testid="set-value"
+                onClick={() => setValue(92392755.99)}
+              />
+            </>
+          );
+        };
+
+        const { getByTestId } = render(<Wrapper />);
+        const input = getInput();
+        input.focus();
+        setCursorPosition(input, 0);
+
+        await typeText(input, "123456.78");
+        await new Promise((resolve) => setTimeout(resolve, 50));
+        fireTransitionEndEvents(input);
+
+        await waitFor(() => {
+          expect(input.textContent).toBe("123,456.78");
+        });
+
+        setDefaultLocale("de-DE");
+
+        fireEvent.click(getByTestId("set-value"));
+
+        await new Promise((resolve) => setTimeout(resolve, 50));
+        fireTransitionEndEvents(input);
+        await new Promise((resolve) => setTimeout(resolve, 50));
+        fireTransitionEndEvents(input);
+
+        await waitFor(() => {
+          expect(input.textContent).toBe("92.392.755,99");
+        });
+
+        const spans = Array.from(
+          input.querySelectorAll("[data-char-index]"),
+        ) as HTMLElement[];
+        const expected = "92.392.755,99";
+        expect(spans).toHaveLength(expected.length);
+        spans.forEach((span, i) => {
+          expect(span.textContent).toBe(expected[i]);
+          expect(span.getAttribute("data-char-index")).toBe(String(i));
+        });
+      });
+
+      it("should handle controlled value updates across a browser locale change (no transitionend)", async () => {
+        // Same scenario as above but the parent passes `value` as a prop
+        // throughout and we never fire transitionend events between the
+        // two updates. This is closer to a real browser interaction:
+        // the user clicks a "randomize" button, the value prop flips
+        // while CSS transitions are still in flight, and the locale
+        // change is silent (no prop change, only the browser default
+        // moved underneath us).
+        const { rerender } = render(
+          <NumberFlowInput format value={123456.78} />,
+        );
+        const input = getInput();
+
+        await waitFor(() => {
+          expect(input.textContent).toBe("123,456.78");
+        });
+
+        setDefaultLocale("de-DE");
+        rerender(<NumberFlowInput format value={92392755.99} />);
+
+        await new Promise((resolve) => setTimeout(resolve, 50));
+        fireTransitionEndEvents(input);
+
+        await waitFor(() => {
+          expect(input.textContent).toBe("92.392.755,99");
+        });
+
+        const spans = Array.from(
+          input.querySelectorAll("[data-char-index]"),
+        ) as HTMLElement[];
+        const expected = "92.392.755,99";
+        expect(spans).toHaveLength(expected.length);
+        spans.forEach((span, i) => {
+          expect(span.textContent).toBe(expected[i]);
+          expect(span.getAttribute("data-char-index")).toBe(String(i));
+        });
+      });
+
+      it("should not animate separators between locales whose separator characters happen to coincide", async () => {
+        // Switch from en-US → fr-FR. fr-FR uses a non-breaking space
+        // for grouping and "," for the decimal. The component's
+        // separator-handling code must read the locale data freshly
+        // on each render rather than caching the en-US separators.
+        const onChange = vi.fn();
+        const { rerender } = render(
+          <NumberFlowInput onChange={onChange} format value={123456.78} />,
+        );
+        const input = getInput();
+
+        await waitFor(() => {
+          expect(input.textContent).toBe("123,456.78");
+        });
+
+        setDefaultLocale("fr-FR");
+        rerender(
+          <NumberFlowInput onChange={onChange} format value={234567.89} />,
+        );
+
+        await new Promise((resolve) => setTimeout(resolve, 50));
+        fireTransitionEndEvents(input);
+
+        // fr-FR groups with U+202F (narrow no-break space) and uses
+        // "," as the decimal separator.
+        await waitFor(() => {
+          expect(input.textContent).toBe("234\u202F567,89");
+        });
+
+        const spans = Array.from(
+          input.querySelectorAll("[data-char-index]"),
+        ) as HTMLElement[];
+        const expected = "234\u202F567,89";
+        expect(spans).toHaveLength(expected.length);
+        spans.forEach((span, i) => {
+          expect(span.textContent).toBe(expected[i]);
+          expect(span.getAttribute("data-char-index")).toBe(String(i));
+        });
       });
     });
 

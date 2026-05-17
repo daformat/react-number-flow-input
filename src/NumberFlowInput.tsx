@@ -169,44 +169,51 @@ export const NumberFlowInput = forwardRef<HTMLElement, NumberFlowInputProps>(
     const [displayValue, setDisplayValue] = useState(
       actualValue?.toString() ?? "",
     );
+
     const [, setCursorPosition] = useState(0);
     const { maxLength } = inputProps;
 
-    // Get separators for the locale (or default locale if format is true)
-    const separators: Separators = useMemo(() => {
+    // Compute current separators (decimal/group) from `locale` and
+    // `format`. Every call site reads the freshest value at runtime, so a
+    // `locale` or `format` change is reflected immediately.
+    const computeSeparators = useCallback((): Separators => {
       if (locale || format) {
         return getLocaleSeparators(locale);
       }
       return { decimal: ".", group: "," };
-    }, [locale, format]);
+    }, [format, locale]);
 
-    const localeSeparators: Separators = useMemo(() => {
-      return getLocaleSeparators(locale);
-    }, [locale]);
-
-    // Format options for the formatValue function
-    const formatOptions = useMemo(
-      () => ({ locale, format, autoAddLeadingZero, separators }),
-      [locale, format, autoAddLeadingZero, separators],
+    // Locale-only separators (independent of `format`). Used by input
+    // handling (paste, decimal-key acceptance, separator-skipping
+    // arrow navigation) which always understands the locale decimal
+    // even when display formatting is off.
+    const computeLocaleSeparators = useCallback(
+      (): Separators => getLocaleSeparators(locale),
+      [locale],
     );
 
     // Compute the formatted display value
     const formattedDisplayValue = useMemo(
-      () => formatValue(displayValue, formatOptions),
-      [displayValue, formatOptions],
+      () =>
+        formatValue(displayValue, {
+          locale,
+          format,
+          autoAddLeadingZero,
+          separators: computeSeparators(),
+        }),
+      [displayValue, locale, format, autoAddLeadingZero, computeSeparators],
     );
 
     // Track previous formatted value for change detection
     const prevFormattedValueRef = useRef(formattedDisplayValue);
 
     // Decimal separator that was actually used to format the previous
-    // render's value. We mirror `separators.decimal` (which already
-    // accounts for both `format` and `locale`). Keeping it in a ref
-    // lets the format/locale-toggle effect read the OLD render's
-    // decimal even after `separators` has been recomputed for the new
-    // render, without resorting to a heuristic (.-vs-, count) that
-    // breaks for short values like "1.5" vs "1,5".
-    const prevDecimalRef = useRef(separators.decimal);
+    // render's value. We seed it with the current render's value and
+    // keep it in sync at the end of the format/locale-toggle effect so
+    // the next run can read the OLD render's decimal directly without
+    // a `.`-vs-`,` heuristic that breaks for short values like "1.5"
+    // vs "1,5".
+    const prevDecimalRef = useRef(computeSeparators().decimal);
 
     // Undo/Redo history - stores cursor position before and after each change
     const historyRef = useRef<
@@ -235,8 +242,8 @@ export const NumberFlowInput = forwardRef<HTMLElement, NumberFlowInputProps>(
     // Helper to check if a character is a "raw" character (digit, decimal, or minus)
     const isRawChar = useCallback(
       (char: string | undefined): boolean =>
-        isRawCharacter(char, separators.decimal),
-      [separators],
+        isRawCharacter(char, computeSeparators().decimal),
+      [computeSeparators],
     );
 
     // Helper to map a raw index to a formatted index
@@ -304,8 +311,14 @@ export const NumberFlowInput = forwardRef<HTMLElement, NumberFlowInputProps>(
 
     // Helper to format a raw value string (raw always uses '.' as decimal)
     const formatRawValue = useCallback(
-      (rawValue: string): string => formatValue(rawValue, formatOptions),
-      [formatOptions],
+      (rawValue: string): string =>
+        formatValue(rawValue, {
+          locale,
+          format,
+          autoAddLeadingZero,
+          separators: computeSeparators(),
+        }),
+      [locale, format, autoAddLeadingZero, computeSeparators],
     );
 
     const addToHistory = useCallback(
@@ -643,11 +656,15 @@ export const NumberFlowInput = forwardRef<HTMLElement, NumberFlowInputProps>(
                 adjustedNewCursorPos,
               );
 
+          // Resolve separators fresh from the current render's `locale`
+          // and `format` rather than reading a memoized object.
+          const currentDecimal = computeSeparators().decimal;
+
           const formattedChanges = asReplacement
             ? getReplacementFormattedChanges(
                 oldFormattedText,
                 newFormattedText,
-                separators.decimal,
+                currentDecimal,
               )
             : getFormattedChanges(
                 oldFormattedText,
@@ -655,14 +672,14 @@ export const NumberFlowInput = forwardRef<HTMLElement, NumberFlowInputProps>(
                 adjustedNewCursorPos,
                 adjustedSelectionStart,
                 adjustedOldText.length,
-                separators.decimal,
+                currentDecimal,
               );
 
           // Detect position changes for x-position animation (used later)
           const positionChanges = getPositionChanges(
             oldFormattedText,
             newFormattedText,
-            separators.decimal,
+            currentDecimal,
           );
 
           // For FLIP animation: capture old positions BEFORE any DOM changes
@@ -2457,7 +2474,7 @@ export const NumberFlowInput = forwardRef<HTMLElement, NumberFlowInputProps>(
         formatRawValue,
         mapRawToFormattedIndex,
         mapFormattedToRawIndex,
-        separators,
+        computeSeparators,
       ],
     );
 
@@ -2512,13 +2529,14 @@ export const NumberFlowInput = forwardRef<HTMLElement, NumberFlowInputProps>(
 
       const oldFormattedText = prevFormattedValueRef.current;
       const newFormattedText = formattedDisplayValue;
+      const currentDecimal = computeSeparators().decimal;
 
       // Skip if no actual change. We still keep `prevDecimalRef` in sync
-      // with the current `separators.decimal` so a locale switch that
-      // happens to leave the text identical (e.g. an integer with no
-      // separators) doesn't leave the ref stale for the next toggle.
+      // with the current decimal so a locale switch that happens to
+      // leave the text identical (e.g. an integer with no separators)
+      // doesn't leave the ref stale for the next toggle.
       if (oldFormattedText === newFormattedText) {
-        prevDecimalRef.current = separators.decimal;
+        prevDecimalRef.current = currentDecimal;
         return;
       }
 
@@ -2593,11 +2611,11 @@ export const NumberFlowInput = forwardRef<HTMLElement, NumberFlowInputProps>(
       const oldDigitPositions = new Map<string, number[]>();
       const oldSeparatorPositions = new Map<string, number[]>();
 
-      // The decimal separator for each text is determined deterministically
-      // by the `separators` we used to format it. The current render's
-      // decimal is `separators.decimal`; the previous render's is kept
-      // in `prevDecimalRef`. No string-content heuristics needed.
-      const newTextDecimal = separators.decimal;
+      // The decimal separator for each text is determined deterministically:
+      // the current render's decimal was just computed above, and the
+      // previous render's lives in `prevDecimalRef`. No string-content
+      // heuristics needed.
+      const newTextDecimal = currentDecimal;
       const oldTextDecimal = prevDecimalRef.current;
 
       // A char counts as "raw" (digit / decimal / minus) for matching
@@ -3195,11 +3213,15 @@ export const NumberFlowInput = forwardRef<HTMLElement, NumberFlowInputProps>(
       // Update the refs to match current formatted value & decimal so the
       // next run of this effect knows what was used last time.
       prevFormattedValueRef.current = formattedDisplayValue;
-      prevDecimalRef.current = separators.decimal;
+      prevDecimalRef.current = currentDecimal;
 
-      // Only run when format or locale changes, not on initial mount
-      // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [format, locale, formattedDisplayValue, isRawChar]);
+    }, [
+      format,
+      locale,
+      formattedDisplayValue,
+      isRawChar,
+      computeSeparators,
+    ]);
 
     // Cleanup ResizeObservers on unmount
     useEffect(() => {
@@ -3622,13 +3644,12 @@ export const NumberFlowInput = forwardRef<HTMLElement, NumberFlowInputProps>(
             }
 
             // Helper to check if a character is a separator (not digit, dot, or minus)
+            const navLocaleDecimal = computeLocaleSeparators().decimal;
             const isSeparator = (char: string | undefined): boolean => {
               if (!char) {
                 return false;
               }
-              return new RegExp(`[^\\d.${localeSeparators.decimal}-]`).test(
-                char,
-              );
+              return new RegExp(`[^\\d.${navLocaleDecimal}-]`).test(char);
             };
 
             // Get current cursor position in formatted text
@@ -3986,7 +4007,7 @@ export const NumberFlowInput = forwardRef<HTMLElement, NumberFlowInputProps>(
         event.preventDefault();
 
         // Handle decimal point input - accept both '.' and locale decimal separator
-        const { decimal } = localeSeparators;
+        const { decimal } = computeLocaleSeparators();
         if (key === "." || key === decimal) {
           // Only allow one decimal point (internally stored as '.')
           if (!currentText.includes(".")) {
@@ -4049,7 +4070,7 @@ export const NumberFlowInput = forwardRef<HTMLElement, NumberFlowInputProps>(
         displayValue,
         formattedDisplayValue,
         mapFormattedToRawIndex,
-        localeSeparators,
+        computeLocaleSeparators,
         removeBarrelWheelsAtIndices,
         updateValue,
         applyHistoryItemWithCursor,
@@ -4174,7 +4195,7 @@ export const NumberFlowInput = forwardRef<HTMLElement, NumberFlowInputProps>(
         let pastedText = event.clipboardData.getData("text");
 
         // Convert locale decimal separator to '.' for internal storage
-        const { decimal } = localeSeparators;
+        const { decimal } = computeLocaleSeparators();
         if (decimal !== ".") {
           // Replace locale decimal with '.' and also accept '.' as-is
           pastedText = pastedText.replace(new RegExp(`\\${decimal}`, "g"), ".");
@@ -4253,7 +4274,7 @@ export const NumberFlowInput = forwardRef<HTMLElement, NumberFlowInputProps>(
       [
         decimalScale,
         allowNegative,
-        localeSeparators,
+        computeLocaleSeparators,
         mapFormattedToRawIndex,
         displayValue,
         formattedDisplayValue,
