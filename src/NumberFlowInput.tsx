@@ -2149,23 +2149,30 @@ export const NumberFlowInput = forwardRef<HTMLElement, NumberFlowInputProps>(
               // starts the digit-roll has run can still drive the cleanup
               // path that un-hides the underlying char span.
               //
-              // We deliberately do NOT use `{once: true}` here — instead we
-              // gate on `e.target === wrapper` and remove the listener
-              // ourselves. Otherwise a transitionend that bubbles up from a
-              // descendant (e.g. one of the 0-9 digit divs styled by
-              // consumer CSS with its own transition) would burn the
-              // single-shot listener before the actual digit-roll
-              // transition has had a chance to fire, leaving the wheel
-              // sitting on top of a (transparent) char span forever.
-              const handleWheelTransitionEnd = (e: TransitionEvent) => {
-                if (e.target !== wrapper) {
-                  return;
-                }
-                wrapper.removeEventListener(
-                  "transitionend",
-                  handleWheelTransitionEnd,
-                );
-
+              // The listener lives on `wheel` (the outer element), not on
+              // `wrapper`. This is important because:
+              //
+              //  1. For non-`isFromZero` wheels, the digit-roll transition
+              //     fires on `wrapper` (or one of its `[data-barrel-digit]`
+              //     children depending on the consumer's CSS) and bubbles
+              //     up to `wheel`.
+              //  2. For `isFromZero` wheels we also set an `opacity 0 → 1`
+              //     transition on `wheel` itself, which only fires on
+              //     `wheel` (events do not bubble downwards). Listening on
+              //     `wheel` catches both flavors.
+              //  3. When the new digit happens to be "0" *and* `isFromZero`
+              //     is true, the digit-roll is a no-op — `--digit-position`
+              //     goes 0 → 0, so no transitionend fires on `wrapper` at
+              //     all. The opacity transition on `wheel` is then the
+              //     only signal that cleanup is ready to run.
+              //
+              // `{once: true}` is intentional: the first transitionend
+              // observed inside the wheel (opacity, translate, transform,
+              // or `--digit-position`) marks the end of the entrance
+              // animation. All these transitions share the same 0.4s
+              // duration so they land together; firing on the first one is
+              // safe.
+              const handleWheelTransitionEnd = () => {
                 const currentIndexStr = wheel.getAttribute("data-char-index");
                 const currentIndex =
                   currentIndexStr !== null
@@ -2248,9 +2255,10 @@ export const NumberFlowInput = forwardRef<HTMLElement, NumberFlowInputProps>(
                   }
                 });
               };
-              wrapper.addEventListener(
+              wheel.addEventListener(
                 "transitionend",
                 handleWheelTransitionEnd,
+                { once: true },
               );
 
               wheel.style.position = "absolute";

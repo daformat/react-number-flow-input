@@ -94,15 +94,36 @@ describe("getReplacementChanges", () => {
 
   it("right-aligns the integer part: extra new digits on the left animate fromZero", () => {
     // 42 → 12042: positions 0-2 are new ("120"), positions 3-4 match.
+    // Position 2 is "0" — its digit-roll from 0 would be a no-op so it
+    // falls through to addedIndices instead.
     const changes = getReplacementChanges("42", "12042");
     expect(changes.unchangedIndices.has(3)).toBe(true); // "4"
     expect(changes.unchangedIndices.has(4)).toBe(true); // "2"
     const wheel0 = changes.barrelWheelIndices.get(0);
     const wheel1 = changes.barrelWheelIndices.get(1);
-    const wheel2 = changes.barrelWheelIndices.get(2);
+    expect(wheel0?.fromZero).toBe(true); // "1"
+    expect(wheel1?.fromZero).toBe(true); // "2"
+    expect(changes.barrelWheelIndices.has(2)).toBe(false); // "0" → flow
+    expect(changes.addedIndices.has(2)).toBe(true);
+  });
+
+  it("does not emit a fromZero wheel for a '0' digit (no-op roll)", () => {
+    // "" → "50": "5" gets a fromZero wheel, "0" does not (no roll).
+    const changes = getReplacementChanges("", "50");
+    expect(changes.barrelWheelIndices.size).toBe(1);
+    const wheel0 = changes.barrelWheelIndices.get(0);
     expect(wheel0?.fromZero).toBe(true);
-    expect(wheel1?.fromZero).toBe(true);
-    expect(wheel2?.fromZero).toBe(true);
+    expect(wheel0?.sequence[0]).toBe("0");
+    expect(wheel0?.sequence[wheel0.sequence.length - 1]).toBe("5");
+    expect(changes.barrelWheelIndices.has(1)).toBe(false);
+    expect(changes.addedIndices.has(1)).toBe(true);
+  });
+
+  it("routes a '0' fromZero decimal digit through addedIndices", () => {
+    // 1.2 → 1.20: position 3 is a new "0" — no-op roll → flow animation.
+    const changes = getReplacementChanges("1.2", "1.20");
+    expect(changes.barrelWheelIndices.has(3)).toBe(false);
+    expect(changes.addedIndices.has(3)).toBe(true);
   });
 
   it("right-aligns the integer part: dropped old left digits become removedDigitWheels", () => {

@@ -3385,6 +3385,53 @@ describe("NumberFlowInput", () => {
         });
       });
 
+      it("does not spawn a fromZero wheel for a '0' digit (no-op roll)", async () => {
+        // Regression: going from no value to "50" must NOT spawn a wheel
+        // for the trailing "0". A fromZero wheel for "0" would roll
+        // --digit-position 0 → 0 — a no-op that never fires a
+        // transitionend on the wrapper — so the wheel could never clean
+        // itself up via the digit-roll signal. We avoid the problem at
+        // the source by routing "0" digits through the regular flow
+        // animation (addedIndices) instead.
+        const { rerender } = render(<NumberFlowInput value={undefined} />);
+        const input = getInput();
+        const parent = input.parentElement!;
+
+        rerender(<NumberFlowInput value={50} />);
+        await new Promise((resolve) => setTimeout(resolve, 50));
+
+        const wheels = Array.from(
+          parent.querySelectorAll("[data-barrel-wheel]"),
+        );
+        // Exactly one wheel: the "5". The "0" must not have a wheel.
+        expect(wheels).toHaveLength(1);
+        expect(wheels[0]?.getAttribute("data-final-digit")).toBe("5");
+
+        // Drive the "5" wheel cleanup so the test leaves a clean DOM.
+        const wrapper = wheels[0]?.querySelector(
+          "[data-barrel-wheel-digits-wrapper]",
+        );
+        if (wrapper) {
+          fireEvent.transitionEnd(wrapper, {
+            propertyName: "--digit-position",
+          });
+        }
+
+        await waitFor(() => {
+          expect(parent.querySelectorAll("[data-barrel-wheel]")).toHaveLength(
+            0,
+          );
+        });
+
+        // The underlying char spans must be visible (not transparent).
+        const spans = input.querySelectorAll(
+          "[data-char-index]",
+        ) as NodeListOf<HTMLElement>;
+        spans.forEach((span) => {
+          expect(span.style.color).not.toBe("transparent");
+        });
+      });
+
       it("removes every barrel wheel even when value updates fire rapidly back-to-back", async () => {
         // If a second update arrives while wheels from the first update
         // are still mid-animation, the reuse path mutates the existing

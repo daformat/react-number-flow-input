@@ -403,7 +403,10 @@ export const getReplacementChanges = (
   if (!oldValue) {
     for (let i = 0; i < newValue.length; i++) {
       const ch = newValue[i];
-      if (ch && /^\d$/.test(ch)) {
+      // A `fromZero` wheel for a "0" digit would roll 0 → 0 — a no-op
+      // that doesn't fire any transition. Treat it as a regular added
+      // char (flow animation) so it always finishes cleanly.
+      if (ch && /^\d$/.test(ch) && ch !== "0") {
         const wheel = buildBarrelWheel("0", ch);
         wheel.fromZero = true;
         changes.barrelWheelIndices.set(i, wheel);
@@ -459,10 +462,11 @@ export const getReplacementChanges = (
     }
 
     if (oldChar === undefined) {
-      // No aligned old digit at this slot. If the new char is a digit it
-      // should animate in as a wheel from "0"; otherwise (separators)
-      // keep the existing flow-animation behavior.
-      if (/^\d$/.test(newChar)) {
+      // No aligned old digit at this slot. If the new char is a non-zero
+      // digit it should animate in as a wheel from "0". A "0" digit
+      // would roll 0 → 0 — a no-op — so route it through the flow
+      // animation instead; separators always use flow animation.
+      if (/^\d$/.test(newChar) && newChar !== "0") {
         const wheel = buildBarrelWheel("0", newChar);
         wheel.fromZero = true;
         changes.barrelWheelIndices.set(newIdx, wheel);
@@ -520,7 +524,9 @@ export const getReplacementChanges = (
       const oldChar = pos < oldDec.length ? oldDec[pos] : undefined;
 
       if (oldChar === undefined) {
-        if (/^\d$/.test(newChar)) {
+        // See integer branch: skip the wheel for "0" digits to avoid a
+        // no-op digit-roll that never fires a transitionend.
+        if (/^\d$/.test(newChar) && newChar !== "0") {
           const wheel = buildBarrelWheel("0", newChar);
           wheel.fromZero = true;
           changes.barrelWheelIndices.set(newIdx, wheel);

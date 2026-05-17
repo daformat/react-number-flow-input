@@ -109,7 +109,7 @@ const css = `
 }
 
 [data-numberflow-input-root] [data-barrel-wheel] [data-barrel-wheel-digits-wrapper] {
-  --digit-gap: 5px;
+  --digit-gap: var(--overflow-size);
   --digit-position: 0;
   display: flex;
   flex-direction: column;
