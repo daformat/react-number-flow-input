@@ -112,6 +112,15 @@ export type NumberFlowInputCommonProps = {
    * Default: false (no formatting)
    */
   format?: boolean;
+  /**
+   * Whether to animate the transition when the `value` prop changes
+   * externally. When `false`, external value updates snap to the new
+   * value instantly — no digit-roll, no separator slide, no flow
+   * animation. Animations triggered by user typing or by `format` /
+   * `locale` prop changes are unaffected.
+   * Default: true
+   */
+  animateOnValueChange?: boolean;
 } & Pick<
   ComponentPropsWithoutRef<"input">,
   | "min"
@@ -150,6 +159,7 @@ export const NumberFlowInput = forwardRef<HTMLElement, NumberFlowInputProps>(
       style,
       isAllowed,
       autoFocus = false,
+      animateOnValueChange = true,
       ...inputProps
     },
     ref,
@@ -2602,13 +2612,45 @@ export const NumberFlowInput = forwardRef<HTMLElement, NumberFlowInputProps>(
         return;
       }
 
+      if (!animateOnValueChange) {
+        // Snap to the new value instantly — no animations whatsoever.
+        // We wipe any in-flight barrel wheels / per-char width styles,
+        // rebuild the contenteditable's contents from scratch via
+        // `textContent`, and sync the diff-tracking refs so the next
+        // animatable change (typing, format/locale toggle) computes its
+        // diff against this fresh baseline.
+        const parent = spanRef.current.parentElement;
+        if (parent) {
+          parent
+            .querySelectorAll("[data-barrel-wheel]")
+            .forEach((el) => el.remove());
+        }
+        resizeObserversRef.current.forEach((observer) => observer.disconnect());
+        resizeObserversRef.current.clear();
+
+        const newFormatted = formatRawValue(newRawDisplay);
+        spanRef.current.textContent = newFormatted;
+
+        prevFormattedValueRef.current = newFormatted;
+        prevDecimalRef.current = computeSeparators().decimal;
+        setDisplayValue(newRawDisplay);
+        return;
+      }
+
       updateValue(newRawDisplay, newRawDisplay.length, 0, displayValue.length, {
         skipHistory: true,
         skipOnChange: true,
         skipCursor: true,
         asReplacement: true,
       });
-    }, [actualValue, displayValue, updateValue]);
+    }, [
+      actualValue,
+      displayValue,
+      updateValue,
+      animateOnValueChange,
+      formatRawValue,
+      computeSeparators,
+    ]);
 
     // Handle format or locale prop changes - animate the transition
     useEffect(() => {

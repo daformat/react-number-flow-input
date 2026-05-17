@@ -1,15 +1,15 @@
 # React number flow input
 
-[![NPM Version](https://img.shields.io/npm/v/%40daformat%2Freact-number-flow-input)](https://www.npmjs.com/package/@daformat/react-number-flow-input)
-[![NPM Downloads](https://img.shields.io/npm/dm/%40daformat%2Freact-number-flow-input)](https://www.npmjs.com/package/@daformat/react-number-flow-input)  
+![NPM Version](https://img.shields.io/npm/v/%40daformat%2Freact-number-flow-input)
+![NPM Downloads](https://img.shields.io/npm/dm/%40daformat%2Freact-number-flow-input)
 [![Follow daformat on GitHub](https://img.shields.io/github/followers/daformat?label=Follow%20%40daformat&style=social)](https://github.com/daformat)
 [![Follow daformat on X](https://img.shields.io/twitter/follow/daformat?label=Follow%20%40daformat&style=social)](https://twitter.com/daformat)
 
-A zero-dependency React component that renders an animated number-flow like number input. Digits animate in as they are typed, selecting and replacing a single digit gives you the popular barrel-wheel effect made famous by [NumberFlow](https://number-flow.barvian.me/), and external `value` changes animate as a coordinated barrel-wheel roll across every digit.
+A zero-dependency React component that renders an animated number input. Digits animate in as they are typed, selecting and replacing a single digit gives you the popular barrel-wheel effect made famous by [NumberFlow](https://number-flow.barvian.me/), and external `value` changes animate as a coordinated barrel-wheel roll across every digit.
 
 ## Demo
 
-<https://hello-mat.com/design-engineering/component/number-flow-input>
+https://hello-mat.com/design-engineering/component/number-flow-input
 
 ## Features
 
@@ -20,9 +20,9 @@ A zero-dependency React component that renders an animated number-flow like numb
 - **Smart editing** — undo/redo, copy/cut/paste, decimal-scale clamping, max-length, negative numbers, leading-zero handling, etc.
 - **Custom validation** — `isAllowed(value)` predicate to reject values you don't like.
 - **Animations included** — digit flow-in, barrel-wheel digit rolls, separator slide-in/out, width animation on group changes.
-- **Styles auto-injected** — a `<style>` tag is added to `<head>` on first mount, no CSS import required. SSR-safe.
+- **Minimal styles auto-injected** — a `<style>` tag is added to `<head>` on first mount, no CSS import required. SSR-safe.
 - **Fully typed** — ships with TypeScript types.
-- **Well tested** — 228+ unit and integration tests.
+- **Well tested** — 220+ unit and integration tests.
 
 ## Installation
 
@@ -83,6 +83,18 @@ function Controlled() {
 ```
 
 External updates to `value` are diffed against the previous value and animate as a coordinated barrel-wheel roll. Initial mount never animates.
+
+To opt out of animations on external `value` changes — for example when restoring a value programmatically or when binding to a noisy state source — pass `animateOnValueChange={false}`:
+
+```tsx
+<NumberFlowInput
+  value={value}
+  onChange={setValue}
+  animateOnValueChange={false}
+/>
+```
+
+User typing and `format` / `locale` toggles still animate; only the prop-driven value updates snap.
 
 ### Formatted display
 
@@ -169,11 +181,12 @@ import type {
 
 ### Value props
 
-| Prop           | Type                  | Description                                                                                             |
-| -------------- | --------------------- | ------------------------------------------------------------------------------------------------------- |
-| `value`        | `number \| undefined` | Controlled value. When provided, changes animate as a barrel-wheel roll (except on initial mount).      |
-| `defaultValue` | `number`              | Uncontrolled starting value.                                                                            |
-| `onChange`     | `(value) => void`     | Called with the parsed number (or `undefined` for intermediate states like `""`, `"-"`, `"."`, `"-."`). |
+| Prop                   | Type                  | Default | Description                                                                                                                                                         |
+| ---------------------- | --------------------- | ------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `value`                | `number \| undefined` | —       | Controlled value. When provided, changes animate as a barrel-wheel roll (except on initial mount).                                                                  |
+| `defaultValue`         | `number`              | —       | Uncontrolled starting value.                                                                                                                                        |
+| `onChange`             | `(value) => void`     | —       | Called with the parsed number (or `undefined` for intermediate states like `""`, `"-"`, `"."`, `"-."`).                                                             |
+| `animateOnValueChange` | `boolean`             | `true`  | When `false`, external `value` updates snap instantly — no digit-roll, no separator slide, no flow animation. Typing and `format` / `locale` toggles still animate. |
 
 > `value` and `defaultValue` are mutually exclusive — TypeScript will enforce this.
 
@@ -219,7 +232,7 @@ The DOM structure (simplified):
       <span data-char-index="1">,</span>
       <!-- ...one span per character... -->
     </span>
-    <input data-numberflow-input-real-input type="text" readonly />
+    <input data-numberflow-input-real-input type="string" readonly />
     <!-- barrel-wheel overlays are appended here while animating -->
   </span>
 </span>
@@ -258,7 +271,7 @@ Modern evergreen browsers. Required browser features:
 ```bash
 pnpm install
 pnpm test          # vitest run
-pnpm build         # tsc -p tsconfig.build.json
+pnpm build --watch # tsc -p tsconfig.build.json
 pnpm format        # prettier --write .
 pnpm lint:js       # eslint .
 ```
@@ -282,16 +295,6 @@ src/
 ```
 
 Every util has its own `*.test.ts` file next to it; component-level tests live in `src/NumberFlowInput.test.tsx`.
-
-## Contributing
-
-Issues and pull requests are welcome at <https://github.com/daformat/react-number-flow-input>.
-
-When opening a PR, please:
-
-1. Add a changeset (`pnpm changeset`) describing the change.
-2. Make sure `pnpm ci` passes locally (build + format check + tests).
-3. Add tests next to the code you touched — utils live in `src/utils/*.test.ts`, component-level behavior in `src/NumberFlowInput.test.tsx`.
 
 ## License
 

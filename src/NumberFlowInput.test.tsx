@@ -3485,6 +3485,101 @@ describe("NumberFlowInput", () => {
         void container;
       });
 
+      describe("animateOnValueChange={false}", () => {
+        it("snaps to the new value without spawning any barrel wheels", async () => {
+          const { rerender } = render(
+            <NumberFlowInput value={123} animateOnValueChange={false} />,
+          );
+          const input = getInput();
+          const parent = input.parentElement!;
+
+          expect(input.textContent).toBe("123");
+
+          rerender(
+            <NumberFlowInput value={9973462} animateOnValueChange={false} />,
+          );
+
+          // Give React a tick to flush the effect.
+          await new Promise((resolve) => setTimeout(resolve, 20));
+
+          expect(input.textContent).toBe("9973462");
+          expect(parent.querySelectorAll("[data-barrel-wheel]")).toHaveLength(
+            0,
+          );
+          // No per-char spans — snap path uses plain textContent.
+          expect(input.querySelectorAll("[data-char-index]")).toHaveLength(0);
+        });
+
+        it("snaps with the formatted value when `format` is true", async () => {
+          const { rerender } = render(
+            <NumberFlowInput value={123} format animateOnValueChange={false} />,
+          );
+          const input = getInput();
+          const parent = input.parentElement!;
+
+          expect(input.textContent).toBe("123");
+
+          rerender(
+            <NumberFlowInput
+              value={9973462}
+              format
+              animateOnValueChange={false}
+            />,
+          );
+          await new Promise((resolve) => setTimeout(resolve, 20));
+
+          expect(input.textContent).toBe("9,973,462");
+          expect(parent.querySelectorAll("[data-barrel-wheel]")).toHaveLength(
+            0,
+          );
+        });
+
+        it("clears in-flight barrel wheels from a previous animated update", async () => {
+          // Start with the default animateOnValueChange=true so the first
+          // rerender DOES animate and spawns wheels, then toggle the prop
+          // off and trigger another rerender — the snap path must clean
+          // those wheels up.
+          const { rerender } = render(<NumberFlowInput value={123} format />);
+          const input = getInput();
+          const parent = input.parentElement!;
+
+          rerender(<NumberFlowInput value={456} format />);
+          await new Promise((resolve) => setTimeout(resolve, 20));
+          expect(
+            parent.querySelectorAll("[data-barrel-wheel]").length,
+          ).toBeGreaterThan(0);
+
+          rerender(
+            <NumberFlowInput value={789} format animateOnValueChange={false} />,
+          );
+          await new Promise((resolve) => setTimeout(resolve, 20));
+
+          expect(input.textContent).toBe("789");
+          expect(parent.querySelectorAll("[data-barrel-wheel]")).toHaveLength(
+            0,
+          );
+        });
+
+        it("still fires the user-typing animation path (animation flag only affects external value changes)", async () => {
+          render(
+            <NumberFlowInput value={undefined} animateOnValueChange={false} />,
+          );
+          const input = getInput();
+          const parent = input.parentElement!;
+          input.focus();
+
+          await typeText(input, "23");
+
+          // The typing path DOES create per-char spans via updateValue
+          // — those are unaffected by `animateOnValueChange`.
+          expect(input.textContent).toBe("23");
+          expect(
+            input.querySelectorAll("[data-char-index]").length,
+          ).toBeGreaterThan(0);
+          void parent;
+        });
+      });
+
       it("renders correctly when going from a longer to shorter value (8 → 7 digits)", async () => {
         const { rerender } = render(
           <NumberFlowInput value={12345678} format />,
