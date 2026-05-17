@@ -129,7 +129,7 @@ describe("NumberFlowInput", () => {
 
     it("should handle negative numbers", async () => {
       const onChange = vi.fn();
-      render(<NumberFlowInput onChange={onChange} />);
+      render(<NumberFlowInput onChange={onChange} allowNegative />);
 
       const input = getInput();
       input.focus();
@@ -309,7 +309,7 @@ describe("NumberFlowInput", () => {
 
     it("should prevent typing 0 before leading 0 in negative number", async () => {
       const onChange = vi.fn();
-      render(<NumberFlowInput onChange={onChange} />);
+      render(<NumberFlowInput onChange={onChange} allowNegative />);
 
       const input = getInput();
       input.focus();
@@ -334,7 +334,7 @@ describe("NumberFlowInput", () => {
 
     it("should prevent typing 0 after leading 0 in negative number", async () => {
       const onChange = vi.fn();
-      render(<NumberFlowInput onChange={onChange} />);
+      render(<NumberFlowInput onChange={onChange} allowNegative />);
 
       const input = getInput();
       input.focus();
@@ -508,7 +508,7 @@ describe("NumberFlowInput", () => {
 
     it("should prevent typing 0 after leading 0 with decimal in negative number (e.g., -0.1121, cursor at position 2)", async () => {
       const onChange = vi.fn();
-      render(<NumberFlowInput onChange={onChange} />);
+      render(<NumberFlowInput onChange={onChange} allowNegative />);
 
       const input = getInput();
       input.focus();
@@ -549,7 +549,7 @@ describe("NumberFlowInput", () => {
 
     it("should prevent typing 0 after minus in negative number (e.g., -12 -> -012)", async () => {
       const onChange = vi.fn();
-      render(<NumberFlowInput onChange={onChange} />);
+      render(<NumberFlowInput onChange={onChange} allowNegative />);
 
       const input = getInput();
       input.focus();
@@ -590,7 +590,7 @@ describe("NumberFlowInput", () => {
 
     it("should allow typing 0 after minus when next character is decimal point (e.g., -.1121 -> -0.1121)", async () => {
       const onChange = vi.fn();
-      render(<NumberFlowInput onChange={onChange} />);
+      render(<NumberFlowInput onChange={onChange} allowNegative />);
 
       const input = getInput();
       input.focus();
@@ -616,7 +616,7 @@ describe("NumberFlowInput", () => {
 
     it("should prevent typing 0 after minus when 0 already exists (e.g., -0.1121 -> -00.1121)", async () => {
       const onChange = vi.fn();
-      render(<NumberFlowInput onChange={onChange} />);
+      render(<NumberFlowInput onChange={onChange} allowNegative />);
 
       const input = getInput();
       input.focus();
@@ -659,7 +659,7 @@ describe("NumberFlowInput", () => {
   describe("Negative sign handling", () => {
     it("should only allow minus at the beginning", async () => {
       const onChange = vi.fn();
-      render(<NumberFlowInput onChange={onChange} />);
+      render(<NumberFlowInput onChange={onChange} allowNegative />);
 
       const input = getInput();
       input.focus();
@@ -678,7 +678,7 @@ describe("NumberFlowInput", () => {
 
     it("should only allow one minus sign", async () => {
       const onChange = vi.fn();
-      render(<NumberFlowInput onChange={onChange} />);
+      render(<NumberFlowInput onChange={onChange} allowNegative />);
 
       const input = getInput();
       input.focus();
@@ -698,7 +698,7 @@ describe("NumberFlowInput", () => {
 
     it("should ignore minus when typed at position 0 if already has minus", async () => {
       const onChange = vi.fn();
-      render(<NumberFlowInput onChange={onChange} />);
+      render(<NumberFlowInput onChange={onChange} allowNegative />);
 
       const input = getInput();
       input.focus();
@@ -2920,7 +2920,7 @@ describe("NumberFlowInput", () => {
     it("should apply name prop to hidden input", () => {
       render(<NumberFlowInput name="test-input" />);
       const hiddenInput = document.querySelector(
-        'input[type="number"]',
+        'input[type="string"]',
       ) as HTMLInputElement;
       expect(hiddenInput).toBeTruthy();
       expect(hiddenInput.name).toBe("test-input");
@@ -2929,7 +2929,7 @@ describe("NumberFlowInput", () => {
     it("should apply id prop to hidden input", () => {
       render(<NumberFlowInput id="test-input-id" />);
       const hiddenInput = document.querySelector(
-        'input[type="number"]',
+        'input[type="string"]',
       ) as HTMLInputElement;
       expect(hiddenInput).toBeTruthy();
       expect(hiddenInput.id).toBe("test-input-id");
