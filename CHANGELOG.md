@@ -1,5 +1,11 @@
 # @daformat/react-number-flow-input
 
+## 1.0.8
+
+### Patch Changes
+
+- 7cda620: feat: add animateOnValueChange prop
+
 ## 1.0.7
 
 ### Patch Changes
