@@ -1589,10 +1589,6 @@ export const NumberFlowInput = forwardRef<HTMLElement, NumberFlowInputProps>(
                   span.getAttribute("data-char-index") ?? "-1",
                   10,
                 );
-                const isHidden =
-                  span.style.color === "transparent" ||
-                  span.style.color === "rgba(0, 0, 0, 0)" ||
-                  window.getComputedStyle(span).color === "rgba(0, 0, 0, 0)";
                 // Check if there's actually a barrel wheel for this index in the DOM
                 // (indices may have shifted, so formattedChanges.barrelWheelIndices might not be accurate)
                 const hasBarrelWheelInDOM = parentContainer?.querySelector(
@@ -4276,7 +4272,7 @@ export const NumberFlowInput = forwardRef<HTMLElement, NumberFlowInputProps>(
             <input
               ref={inputRef}
               {...inputProps}
-              type="string"
+              type="text"
               inputMode="decimal"
               readOnly
               tabIndex={-1}

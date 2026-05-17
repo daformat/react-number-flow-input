@@ -5,7 +5,7 @@
 [![Follow daformat on GitHub](https://img.shields.io/github/followers/daformat?label=Follow%20%40daformat&style=social)](https://github.com/daformat)
 [![Follow daformat on X](https://img.shields.io/twitter/follow/daformat?label=Follow%20%40daformat&style=social)](https://twitter.com/daformat)
 
-A zero-dependency React component that renders an animated number input. Digits animate in as they are typed, selecting and replacing a single digit gives you the popular barrel-wheel effect made famous by [NumberFlow](https://number-flow.barvian.me/), and external `value` changes animate as a coordinated barrel-wheel roll across every digit.
+A zero-dependency React component that renders an animated number-flow like number input. Digits animate in as they are typed, selecting and replacing a single digit gives you the popular barrel-wheel effect made famous by [NumberFlow](https://number-flow.barvian.me/), and external `value` changes animate as a coordinated barrel-wheel roll across every digit.
 
 ## Demo
 
@@ -219,7 +219,7 @@ The DOM structure (simplified):
       <span data-char-index="1">,</span>
       <!-- ...one span per character... -->
     </span>
-    <input data-numberflow-input-real-input type="string" readonly />
+    <input data-numberflow-input-real-input type="text" readonly />
     <!-- barrel-wheel overlays are appended here while animating -->
   </span>
 </span>
