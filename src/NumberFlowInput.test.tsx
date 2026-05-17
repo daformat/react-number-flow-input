@@ -927,6 +927,94 @@ describe("NumberFlowInput", () => {
         expect(onChange).toHaveBeenLastCalledWith(145);
       });
     });
+
+    it("does not animate when a selected digit is replaced by the exact same digit", async () => {
+      // Selecting "3" in "12,345" and typing "3" again should be a no-op
+      // visually: no barrel wheel, no flow animation, and the existing span
+      // for that digit should be reused (same DOM node).
+      const onChange = vi.fn();
+      render(<NumberFlowInput onChange={onChange} format />);
+
+      const input = getInput();
+      input.focus();
+
+      await typeText(input, "12345");
+      await waitFor(() => {
+        expect(input.textContent).toBe("12,345");
+      });
+
+      const selectFormattedRange = (start: number, end: number) => {
+        const walker = document.createTreeWalker(
+          input,
+          NodeFilter.SHOW_TEXT,
+          null,
+        );
+        let currentPos = 0;
+        let startNode: Node | null = null;
+        let endNode: Node | null = null;
+        let startOffset = 0;
+        let endOffset = 0;
+        let node: Node | null;
+        while ((node = walker.nextNode())) {
+          const nodeLength = node.textContent?.length ?? 0;
+          if (!startNode && currentPos + nodeLength >= start) {
+            startNode = node;
+            startOffset = Math.min(start - currentPos, nodeLength);
+          }
+          if (!endNode && currentPos + nodeLength >= end) {
+            endNode = node;
+            endOffset = Math.min(end - currentPos, nodeLength);
+            break;
+          }
+          currentPos += nodeLength;
+        }
+        if (startNode && endNode) {
+          const selection = window.getSelection();
+          if (selection) {
+            const range = document.createRange();
+            range.setStart(startNode, startOffset);
+            range.setEnd(endNode, endOffset);
+            selection.removeAllRanges();
+            selection.addRange(range);
+          }
+        }
+      };
+
+      // The "3" lives at formatted index 3 in "12,345" (because of the comma).
+      const spanBefore = input.querySelector(
+        '[data-char-index="3"]',
+      ) as HTMLElement | null;
+      expect(spanBefore?.textContent).toBe("3");
+
+      const onChangeCallsBefore = onChange.mock.calls.length;
+
+      // Select the "3" and re-type "3".
+      selectFormattedRange(3, 4);
+      fireEvent.keyDown(input, { key: "3", preventDefault: vi.fn() });
+      await new Promise((resolve) => setTimeout(resolve, 50));
+
+      // Text unchanged.
+      expect(input.textContent).toBe("12,345");
+
+      // The exact same DOM span is reused — no rebuild, no animation.
+      const spanAfter = input.querySelector(
+        '[data-char-index="3"]',
+      ) as HTMLElement | null;
+      expect(spanAfter).toBe(spanBefore);
+
+      // No barrel wheel was created.
+      const parent = input.parentElement;
+      if (parent) {
+        expect(parent.querySelectorAll("[data-barrel-wheel]")).toHaveLength(0);
+      }
+
+      // onChange may or may not fire (the value didn't really change), but
+      // if it did it should report the same number.
+      const newCalls = onChange.mock.calls.slice(onChangeCallsBefore);
+      for (const [v] of newCalls) {
+        expect(v).toBe(12345);
+      }
+    });
   });
 
   describe("Keyboard shortcuts", () => {

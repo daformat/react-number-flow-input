@@ -140,6 +140,16 @@ export const getFormattedChanges = (
     return { addedIndices, unchangedIndices };
   }
 
+  // If the formatted string didn't change at all (e.g. the user selected a
+  // digit and re-typed the same digit), nothing should animate. Treat every
+  // position as unchanged so spans get reused as-is.
+  if (oldFormatted === newFormatted) {
+    for (let i = 0; i < newFormatted.length; i++) {
+      unchangedIndices.add(i);
+    }
+    return { addedIndices, unchangedIndices };
+  }
+
   // Count separators to determine which are truly new
   const oldSeparatorCounts = countSeparators(oldFormatted, localeDecimal);
   const newSeparatorCounts = countSeparators(newFormatted, localeDecimal);
@@ -646,6 +656,16 @@ export const getChanges = (
   if (!oldValue) {
     for (let i = 0; i < newValue.length; i++) {
       changes.addedIndices.add(i);
+    }
+    return changes;
+  }
+
+  // If the raw value didn't change (e.g. selection was replaced by the exact
+  // same characters), there is no animation to play — mark every position as
+  // unchanged so the existing spans get reused unchanged.
+  if (oldValue === newValue) {
+    for (let i = 0; i < newValue.length; i++) {
+      changes.unchangedIndices.add(i);
     }
     return changes;
   }

@@ -6,15 +6,17 @@ const easeOutCubic = cssEasing["--ease-out-cubic"];
 
 const css = `
 [data-numberflow-input-root] [data-numberflow-input-wrapper] {
-  margin: -10px;
+  --overflow-size: 0.2em;
+  
+  margin: calc(var(--overflow-size) * -1);
   mask-image: linear-gradient(
     to bottom,
     transparent,
-    #000 10px,
-    #000 calc(100% - 10px),
+    #000 var(--overflow-size),
+    #000 calc(100% - var(--overflow-size)),
     transparent
   );
-  padding: 10px;
+  padding: var(--overflow-size);
   position: relative;
 }
 

@@ -46,6 +46,23 @@ describe("getChanges", () => {
     expect(changes.barrelWheelIndices.size).toBe(0);
   });
 
+  it("marks every position as unchanged when replacing a digit with the exact same digit", () => {
+    // Select the "3" in "1234" (selection (2,3)) and type "3" again → "1234".
+    // The raw value didn't change, so nothing should animate.
+    const changes = getChanges("1234", "1234", 2, 3, 3);
+    expect(changes.barrelWheelIndices.size).toBe(0);
+    expect(changes.addedIndices.size).toBe(0);
+    expect(Array.from(changes.unchangedIndices).sort()).toEqual([0, 1, 2, 3]);
+  });
+
+  it("marks every position as unchanged when replacing a multi-digit selection with the exact same digits", () => {
+    // Select "23" in "1234" (selection (1,3)) and type "23" again → "1234".
+    const changes = getChanges("1234", "1234", 1, 3, 3);
+    expect(changes.barrelWheelIndices.size).toBe(0);
+    expect(changes.addedIndices.size).toBe(0);
+    expect(Array.from(changes.unchangedIndices).sort()).toEqual([0, 1, 2, 3]);
+  });
+
   it("falls back to added (not barrel) when the replaced char is not a digit", () => {
     const changes = getChanges("1.34", "1934", 1, 2, 2);
     expect(changes.barrelWheelIndices.size).toBe(0);
@@ -220,6 +237,17 @@ describe("getFormattedChanges", () => {
     expect(result.addedIndices.has(1)).toBe(true);
     // Index 4 is the "4" in "1,234"
     expect(result.addedIndices.has(4)).toBe(true);
+  });
+
+  it("marks every position as unchanged when the formatted strings are identical", () => {
+    // Selecting "3" in "1,234" (raw selection (2,3)) and typing "3" again
+    // leaves the formatted string identical to itself — nothing should
+    // animate, even though the input handler is still invoked.
+    const result = getFormattedChanges("1,234", "1,234", 3, 2, 4);
+    expect(result.addedIndices.size).toBe(0);
+    expect(Array.from(result.unchangedIndices).sort((a, b) => a - b)).toEqual([
+      0, 1, 2, 3, 4,
+    ]);
   });
 
   it("should mark shifted separator as unchanged", () => {
