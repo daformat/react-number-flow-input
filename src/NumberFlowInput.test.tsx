@@ -2903,6 +2903,282 @@ describe("NumberFlowInput", () => {
       expect(input.textContent).toBe("456");
     });
 
+    describe("external value prop changes (formatted)", () => {
+      // Helpers to read the rendered character spans in DOM order
+      const getRenderedSpans = (input: HTMLElement): HTMLElement[] =>
+        Array.from(
+          input.querySelectorAll("[data-char-index]"),
+        ) as HTMLElement[];
+
+      const getRenderedText = (input: HTMLElement): string =>
+        getRenderedSpans(input)
+          .map((s) => s.textContent ?? "")
+          .join("");
+
+      const fireAllTransitions = (input: HTMLElement) => {
+        // Drive every span's transitionend handlers so cleanup logic runs.
+        const all = input.querySelectorAll("[data-char-index]");
+        all.forEach((el) => {
+          fireEvent.transitionEnd(el, { propertyName: "width" });
+          fireEvent.transitionEnd(el, { propertyName: "min-width" });
+          fireEvent.transitionEnd(el, { propertyName: "max-width" });
+          fireEvent.transitionEnd(el, { propertyName: "translate" });
+        });
+      };
+
+      it("renders correct formatted text and span layout when value goes from undefined → 9973462 with format", async () => {
+        const { rerender } = render(
+          <NumberFlowInput value={undefined} format />,
+        );
+        const input = getInput();
+        expect(input.textContent).toBe("");
+
+        rerender(<NumberFlowInput value={9973462} format />);
+
+        // Let updateValue + its requestAnimationFrame work, then complete
+        // the width transitions so width:0 is cleared from animating spans.
+        await new Promise((resolve) => setTimeout(resolve, 50));
+        fireAllTransitions(input);
+
+        await waitFor(() => {
+          expect(input.textContent).toBe("9,973,462");
+        });
+
+        const spans = getRenderedSpans(input);
+        // One span per formatted character (9 = "9,973,462".length)
+        expect(spans).toHaveLength(9);
+
+        // Spans must appear in DOM in left-to-right order matching the value
+        expect(getRenderedText(input)).toBe("9,973,462");
+
+        // data-char-index must be 0..8 with no gaps and no duplicates,
+        // matching DOM order (so spans render visually in order).
+        spans.forEach((span, i) => {
+          expect(span.getAttribute("data-char-index")).toBe(i.toString());
+          expect(span.textContent).toBe("9,973,462"[i]);
+        });
+
+        // Nothing should be left stuck at width:0
+        spans.forEach((span) => {
+          expect(span.style.width).not.toBe("0px");
+        });
+      });
+
+      it("renders correct formatted text when value goes from a smaller number → 9973462", async () => {
+        const { rerender } = render(<NumberFlowInput value={0} format />);
+        const input = getInput();
+        expect(input.textContent).toBe("0");
+
+        rerender(<NumberFlowInput value={9973462} format />);
+
+        await new Promise((resolve) => setTimeout(resolve, 50));
+        fireAllTransitions(input);
+
+        await waitFor(() => {
+          expect(input.textContent).toBe("9,973,462");
+        });
+
+        const spans = getRenderedSpans(input);
+        expect(spans).toHaveLength(9);
+        expect(getRenderedText(input)).toBe("9,973,462");
+        spans.forEach((span, i) => {
+          expect(span.getAttribute("data-char-index")).toBe(i.toString());
+          expect(span.textContent).toBe("9,973,462"[i]);
+        });
+      });
+
+      it("renders correct formatted text when value goes between two same-length values", async () => {
+        const { rerender } = render(
+          <NumberFlowInput value={2345678} format />,
+        );
+        const input = getInput();
+        expect(input.textContent).toBe("2,345,678");
+
+        rerender(<NumberFlowInput value={9973462} format />);
+
+        await new Promise((resolve) => setTimeout(resolve, 50));
+        fireAllTransitions(input);
+
+        await waitFor(() => {
+          expect(input.textContent).toBe("9,973,462");
+        });
+
+        const spans = getRenderedSpans(input);
+        expect(spans).toHaveLength(9);
+        expect(getRenderedText(input)).toBe("9,973,462");
+        spans.forEach((span, i) => {
+          expect(span.getAttribute("data-char-index")).toBe(i.toString());
+          expect(span.textContent).toBe("9,973,462"[i]);
+        });
+      });
+
+      it("animates digit replacements as barrel wheels for same-length value swaps", async () => {
+        const { rerender } = render(
+          <NumberFlowInput value={2345678} format />,
+        );
+        const input = getInput();
+        const parent = input.parentElement!;
+
+        rerender(<NumberFlowInput value={9973462} format />);
+
+        await waitFor(() => {
+          // Barrel wheels are appended to the wrapper for each digit that
+          // changed at the same right-aligned position.
+          const wheels = parent.querySelectorAll("[data-barrel-wheel]");
+          // Every digit differs between 2,345,678 and 9,973,462, so 7 wheels.
+          expect(wheels.length).toBe(7);
+        });
+      });
+
+      it("does not animate on initial mount (no FOUC / no wheels for initial value)", async () => {
+        const { container } = render(<NumberFlowInput value={9973462} format />);
+        const input = getInput();
+        const parent = input.parentElement!;
+
+        // Initial value should be rendered as plain textContent without
+        // having triggered the prop-change effect.
+        expect(input.textContent).toBe("9,973,462");
+        // No barrel wheels for the initial mount.
+        expect(parent.querySelectorAll("[data-barrel-wheel]")).toHaveLength(0);
+        // And no per-char animating spans either — these only appear after
+        // updateValue runs.
+        expect(input.querySelectorAll("[data-char-index]")).toHaveLength(0);
+        // suppress unused
+        void container;
+      });
+
+      it("renders correctly when going from a longer to shorter value (8 → 7 digits)", async () => {
+        const { rerender } = render(
+          <NumberFlowInput value={12345678} format />,
+        );
+        const input = getInput();
+        expect(input.textContent).toBe("12,345,678");
+
+        rerender(<NumberFlowInput value={9973462} format />);
+
+        await new Promise((resolve) => setTimeout(resolve, 50));
+        fireAllTransitions(input);
+
+        await waitFor(() => {
+          expect(input.textContent).toBe("9,973,462");
+        });
+
+        const spans = getRenderedSpans(input);
+        expect(spans).toHaveLength(9);
+        expect(getRenderedText(input)).toBe("9,973,462");
+        spans.forEach((span, i) => {
+          expect(span.getAttribute("data-char-index")).toBe(i.toString());
+          expect(span.textContent).toBe("9,973,462"[i]);
+        });
+      });
+
+      it("renders correctly going from 6 → 7 digits (new comma at idx 1, second comma matches)", async () => {
+        const { rerender } = render(<NumberFlowInput value={973462} format />);
+        const input = getInput();
+        expect(input.textContent).toBe("973,462");
+
+        rerender(<NumberFlowInput value={9973462} format />);
+
+        await new Promise((resolve) => setTimeout(resolve, 50));
+        fireAllTransitions(input);
+
+        await waitFor(() => {
+          expect(input.textContent).toBe("9,973,462");
+        });
+
+        const spans = getRenderedSpans(input);
+        expect(spans).toHaveLength(9);
+        expect(getRenderedText(input)).toBe("9,973,462");
+        spans.forEach((span, i) => {
+          expect(span.getAttribute("data-char-index")).toBe(i.toString());
+          expect(span.textContent).toBe("9,973,462"[i]);
+        });
+      });
+
+      it("renders correctly going from 5 → 7 digits (both commas are new)", async () => {
+        const { rerender } = render(<NumberFlowInput value={73462} format />);
+        const input = getInput();
+        expect(input.textContent).toBe("73,462");
+
+        rerender(<NumberFlowInput value={9973462} format />);
+
+        await new Promise((resolve) => setTimeout(resolve, 50));
+        fireAllTransitions(input);
+
+        await waitFor(() => {
+          expect(input.textContent).toBe("9,973,462");
+        });
+
+        const spans = getRenderedSpans(input);
+        expect(spans).toHaveLength(9);
+        expect(getRenderedText(input)).toBe("9,973,462");
+        spans.forEach((span, i) => {
+          expect(span.getAttribute("data-char-index")).toBe(i.toString());
+          expect(span.textContent).toBe("9,973,462"[i]);
+        });
+      });
+
+      it("renders correctly across several rapid prop changes", async () => {
+        const { rerender } = render(<NumberFlowInput value={1} format />);
+        const input = getInput();
+
+        const sequence = [12, 123, 1234, 12345, 123456, 1234567, 9973462];
+        for (const v of sequence) {
+          rerender(<NumberFlowInput value={v} format />);
+          // Yield a microtask between rerenders so the effect can run.
+          await new Promise((resolve) => setTimeout(resolve, 5));
+        }
+
+        await new Promise((resolve) => setTimeout(resolve, 100));
+        fireAllTransitions(input);
+
+        await waitFor(() => {
+          expect(input.textContent).toBe("9,973,462");
+        });
+
+        const spans = getRenderedSpans(input);
+        expect(spans).toHaveLength(9);
+        expect(getRenderedText(input)).toBe("9,973,462");
+        spans.forEach((span, i) => {
+          expect(span.getAttribute("data-char-index")).toBe(i.toString());
+          expect(span.textContent).toBe("9,973,462"[i]);
+        });
+      });
+
+      it("renders correctly when only some barrel wheels complete before next render", async () => {
+        // Simulate the scenario where prop changes back-to-back without
+        // waiting for transitions to settle, which is when ghost spans tend
+        // to appear.
+        const { rerender } = render(
+          <NumberFlowInput value={2345678} format />,
+        );
+        const input = getInput();
+        expect(input.textContent).toBe("2,345,678");
+
+        rerender(<NumberFlowInput value={1234567} format />);
+        // Don't drain transitions — only let the rAF run once.
+        await new Promise((resolve) => setTimeout(resolve, 10));
+
+        rerender(<NumberFlowInput value={9973462} format />);
+
+        await new Promise((resolve) => setTimeout(resolve, 100));
+        fireAllTransitions(input);
+
+        await waitFor(() => {
+          expect(input.textContent).toBe("9,973,462");
+        });
+
+        const spans = getRenderedSpans(input);
+        // The DOM should not have leftover spans from previous renders.
+        expect(spans).toHaveLength(9);
+        expect(getRenderedText(input)).toBe("9,973,462");
+        spans.forEach((span, i) => {
+          expect(span.getAttribute("data-char-index")).toBe(i.toString());
+          expect(span.textContent).toBe("9,973,462"[i]);
+        });
+      });
+    });
+
     it("should work as uncontrolled component", async () => {
       const onChange = vi.fn();
       render(<NumberFlowInput defaultValue={123} onChange={onChange} />);

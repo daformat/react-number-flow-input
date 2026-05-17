@@ -292,6 +292,232 @@ export const getFormattedChanges = (
   return { addedIndices, unchangedIndices };
 };
 
+/**
+ * Build a barrel-wheel sequence + direction for a digit-to-digit transition.
+ * @internal
+ */
+const buildBarrelWheel = (
+  oldChar: string,
+  newChar: string,
+): { sequence: string[]; direction: "up" | "down" } => {
+  const oldDigit = parseInt(oldChar, 10);
+  const newDigit = parseInt(newChar, 10);
+  const direction: "up" | "down" = newDigit > oldDigit ? "up" : "down";
+  const sequence: string[] = [];
+  if (direction === "up") {
+    for (let i = oldDigit; i <= newDigit; i++) {
+      sequence.push(i.toString());
+    }
+  } else {
+    for (let i = newDigit; i <= oldDigit; i++) {
+      sequence.push(i.toString());
+    }
+  }
+  return { sequence, direction };
+};
+
+/**
+ * Split a raw value into [sign?][integer][.decimal?] with their start positions.
+ * @internal
+ */
+const splitRawParts = (
+  value: string,
+): {
+  sign: string;
+  int: string;
+  dec: string | null;
+  intStart: number;
+  dotIdx: number;
+  decStart: number;
+} => {
+  let start = 0;
+  let sign = "";
+  if (value[0] === "-") {
+    sign = "-";
+    start = 1;
+  }
+  const dotIdx = value.indexOf(".", start);
+  const int = dotIdx === -1 ? value.slice(start) : value.slice(start, dotIdx);
+  const dec = dotIdx === -1 ? null : value.slice(dotIdx + 1);
+  return {
+    sign,
+    int,
+    dec,
+    intStart: start,
+    dotIdx,
+    decStart: dotIdx === -1 ? -1 : dotIdx + 1,
+  };
+};
+
+/**
+ * Diff two values as a wholesale replacement (used when the `value` prop
+ * changes externally rather than via the user typing). Aligns integer digits
+ * from the right and decimal digits from the left, so digits in the same
+ * "column" produce barrel-wheel animations and any extra digits are added/
+ * removed at the edges.
+ */
+export const getReplacementChanges = (
+  oldValue: string,
+  newValue: string,
+): Changes => {
+  const changes: Changes = {
+    addedIndices: new Set(),
+    unchangedIndices: new Set(),
+    barrelWheelIndices: new Map(),
+  };
+
+  if (!oldValue) {
+    for (let i = 0; i < newValue.length; i++) {
+      changes.addedIndices.add(i);
+    }
+    return changes;
+  }
+  if (!newValue) {
+    return changes;
+  }
+
+  const oldParts = splitRawParts(oldValue);
+  const newParts = splitRawParts(newValue);
+
+  // Sign (always at index 0 in raw)
+  if (newParts.sign) {
+    if (oldParts.sign) {
+      changes.unchangedIndices.add(0);
+    } else {
+      changes.addedIndices.add(0);
+    }
+  }
+
+  // Integer part: right-align
+  const oldIntLen = oldParts.int.length;
+  const newIntLen = newParts.int.length;
+  for (let pos = 0; pos < newIntLen; pos++) {
+    const newIdx = newParts.intStart + pos;
+    const newChar = newParts.int[pos];
+    if (!newChar) {
+      continue;
+    }
+    const distFromEnd = newIntLen - 1 - pos;
+    const oldPos = oldIntLen - 1 - distFromEnd;
+    const oldChar = oldPos >= 0 ? oldParts.int[oldPos] : undefined;
+
+    if (oldChar === undefined) {
+      changes.addedIndices.add(newIdx);
+    } else if (oldChar === newChar) {
+      changes.unchangedIndices.add(newIdx);
+    } else if (/^\d$/.test(oldChar) && /^\d$/.test(newChar)) {
+      changes.barrelWheelIndices.set(newIdx, buildBarrelWheel(oldChar, newChar));
+    } else {
+      changes.addedIndices.add(newIdx);
+    }
+  }
+
+  // Decimal point
+  if (newParts.dotIdx !== -1) {
+    if (oldParts.dotIdx !== -1) {
+      changes.unchangedIndices.add(newParts.dotIdx);
+    } else {
+      changes.addedIndices.add(newParts.dotIdx);
+    }
+  }
+
+  // Decimal part: left-align
+  if (newParts.dec !== null && newParts.decStart !== -1) {
+    const oldDec = oldParts.dec ?? "";
+    for (let pos = 0; pos < newParts.dec.length; pos++) {
+      const newIdx = newParts.decStart + pos;
+      const newChar = newParts.dec[pos];
+      if (!newChar) {
+        continue;
+      }
+      const oldChar = pos < oldDec.length ? oldDec[pos] : undefined;
+
+      if (oldChar === undefined) {
+        changes.addedIndices.add(newIdx);
+      } else if (oldChar === newChar) {
+        changes.unchangedIndices.add(newIdx);
+      } else if (/^\d$/.test(oldChar) && /^\d$/.test(newChar)) {
+        changes.barrelWheelIndices.set(
+          newIdx,
+          buildBarrelWheel(oldChar, newChar),
+        );
+      } else {
+        changes.addedIndices.add(newIdx);
+      }
+    }
+  }
+
+  return changes;
+};
+
+/**
+ * Formatted-space variant of {@link getReplacementChanges}. Returns
+ * added/unchanged indices in the *formatted* string, aligned the same way
+ * (integers right-aligned, decimals left-aligned).
+ */
+export const getReplacementFormattedChanges = (
+  oldFormatted: string,
+  newFormatted: string,
+  localeDecimal: string,
+): { addedIndices: Set<number>; unchangedIndices: Set<number> } => {
+  const addedIndices = new Set<number>();
+  const unchangedIndices = new Set<number>();
+
+  if (!oldFormatted) {
+    for (let i = 0; i < newFormatted.length; i++) {
+      addedIndices.add(i);
+    }
+    return { addedIndices, unchangedIndices };
+  }
+  if (!newFormatted) {
+    return { addedIndices, unchangedIndices };
+  }
+
+  const oldDecIdx = oldFormatted.indexOf(localeDecimal);
+  const newDecIdx = newFormatted.indexOf(localeDecimal);
+
+  const oldIntStr =
+    oldDecIdx === -1 ? oldFormatted : oldFormatted.slice(0, oldDecIdx);
+  const newIntStr =
+    newDecIdx === -1 ? newFormatted : newFormatted.slice(0, newDecIdx);
+
+  const oldIntLen = oldIntStr.length;
+  const newIntLen = newIntStr.length;
+  for (let pos = 0; pos < newIntLen; pos++) {
+    const distFromEnd = newIntLen - 1 - pos;
+    const oldPos = oldIntLen - 1 - distFromEnd;
+    const newChar = newIntStr[pos];
+    const oldChar = oldPos >= 0 ? oldIntStr[oldPos] : undefined;
+    if (oldChar !== undefined && oldChar === newChar) {
+      unchangedIndices.add(pos);
+    } else {
+      addedIndices.add(pos);
+    }
+  }
+
+  if (newDecIdx !== -1) {
+    if (oldDecIdx !== -1) {
+      unchangedIndices.add(newDecIdx);
+    } else {
+      addedIndices.add(newDecIdx);
+    }
+    const oldDecStr = oldDecIdx === -1 ? "" : oldFormatted.slice(oldDecIdx + 1);
+    const newDecStr = newFormatted.slice(newDecIdx + 1);
+    for (let pos = 0; pos < newDecStr.length; pos++) {
+      const fullIdx = newDecIdx + 1 + pos;
+      const newChar = newDecStr[pos];
+      const oldChar = pos < oldDecStr.length ? oldDecStr[pos] : undefined;
+      if (oldChar !== undefined && oldChar === newChar) {
+        unchangedIndices.add(fullIdx);
+      } else {
+        addedIndices.add(fullIdx);
+      }
+    }
+  }
+
+  return { addedIndices, unchangedIndices };
+};
+
 export const getChanges = (
   oldValue: string,
   newValue: string,
@@ -330,24 +556,11 @@ export const getChanges = (
       const newChar = newValue[insertStart];
 
       if (oldChar && newChar && /^\d$/.test(oldChar) && /^\d$/.test(newChar)) {
-        const oldDigit = parseInt(oldChar, 10);
-        const newDigit = parseInt(newChar, 10);
-
-        if (oldDigit !== newDigit) {
-          const sequence: string[] = [];
-          const direction = newDigit > oldDigit ? "up" : "down";
-
-          if (direction === "up") {
-            for (let i = oldDigit; i <= newDigit; i++) {
-              sequence.push(i.toString());
-            }
-          } else {
-            for (let i = newDigit; i <= oldDigit; i++) {
-              sequence.push(i.toString());
-            }
-          }
-
-          changes.barrelWheelIndices.set(insertStart, { sequence, direction });
+        if (oldChar !== newChar) {
+          changes.barrelWheelIndices.set(
+            insertStart,
+            buildBarrelWheel(oldChar, newChar),
+          );
         }
       }
     }

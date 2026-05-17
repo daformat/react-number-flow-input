@@ -26,6 +26,8 @@ import {
   getChanges,
   getFormattedChanges,
   getPositionChanges,
+  getReplacementChanges,
+  getReplacementFormattedChanges,
 } from "./utils/changes.js";
 import { combineRefs } from "./utils/combineRefs.js";
 import {
@@ -442,8 +444,20 @@ export const NumberFlowInput = forwardRef<HTMLElement, NumberFlowInputProps>(
         newCursorPos: number,
         selectionStart: number,
         selectionEnd: number,
-        skipHistory = false,
+        options: {
+          skipHistory?: boolean;
+          skipOnChange?: boolean;
+          skipCursor?: boolean;
+          asReplacement?: boolean;
+        } = {},
       ) => {
+        const {
+          skipHistory = false,
+          skipOnChange = false,
+          skipCursor = false,
+          asReplacement = false,
+        } = options;
+
         if (isAllowed && !isAllowed(Number(newText))) {
           return;
         }
@@ -486,7 +500,9 @@ export const NumberFlowInput = forwardRef<HTMLElement, NumberFlowInputProps>(
 
         const numberValue = parseNumberValue(cleanedText);
 
-        onChange?.(numberValue);
+        if (!skipOnChange) {
+          onChange?.(numberValue);
+        }
         setUncontrolledValue(numberValue);
         setDisplayValue(cleanedText);
         setCursorPosition(newCursorPos);
@@ -566,25 +582,38 @@ export const NumberFlowInput = forwardRef<HTMLElement, NumberFlowInputProps>(
               }
             }
           }
-          const changes = getChanges(
-            adjustedOldText,
-            cleanedText,
-            adjustedSelectionStart,
-            adjustedSelectionEnd,
-            adjustedNewCursorPos,
-          );
-
           // Compute formatted versions for display
           const oldFormattedText = prevFormattedValueRef.current;
           const newFormattedText = formatRawValue(cleanedText);
-          const formattedChanges = getFormattedChanges(
-            oldFormattedText,
-            newFormattedText,
-            adjustedNewCursorPos,
-            adjustedSelectionStart,
-            adjustedOldText.length,
-            separators.decimal,
-          );
+
+          // When invoked as a wholesale replacement (e.g. `value` prop
+          // changed externally), align digits column-by-column so changed
+          // digits play barrel-wheel animations instead of all being treated
+          // as added.
+          const changes = asReplacement
+            ? getReplacementChanges(adjustedOldText, cleanedText)
+            : getChanges(
+                adjustedOldText,
+                cleanedText,
+                adjustedSelectionStart,
+                adjustedSelectionEnd,
+                adjustedNewCursorPos,
+              );
+
+          const formattedChanges = asReplacement
+            ? getReplacementFormattedChanges(
+                oldFormattedText,
+                newFormattedText,
+                separators.decimal,
+              )
+            : getFormattedChanges(
+                oldFormattedText,
+                newFormattedText,
+                adjustedNewCursorPos,
+                adjustedSelectionStart,
+                adjustedOldText.length,
+                separators.decimal,
+              );
 
           // Detect position changes for x-position animation (used later)
           const positionChanges = getPositionChanges(
@@ -970,7 +999,15 @@ export const NumberFlowInput = forwardRef<HTMLElement, NumberFlowInputProps>(
                 newFormattedText,
                 i,
               );
-              const barrelWheel = changes.barrelWheelIndices.get(rawIndex);
+              // Barrel wheels only apply to digit positions. Without this
+              // guard, a separator (e.g. the comma in "1,000") can map to
+              // the same raw index as an adjacent digit's barrel wheel and
+              // get treated as a wheel position, which strips its
+              // `data-flow` and leaves it stuck at width:0.
+              const isDigitChar = char !== undefined && /^\d$/.test(char);
+              const barrelWheel = isDigitChar
+                ? changes.barrelWheelIndices.get(rawIndex)
+                : undefined;
 
               // Check if there's a barrel wheel in DOM for this index (indices may have shifted)
               const hasBarrelWheelInDOM = parentContainer?.querySelector(
@@ -1519,8 +1556,12 @@ export const NumberFlowInput = forwardRef<HTMLElement, NumberFlowInputProps>(
                   newFormattedText,
                   index,
                 );
+                // Only consider a barrel-wheel match if this span actually
+                // holds a digit; otherwise a separator can collide with an
+                // adjacent digit's barrel-wheel raw index.
+                const spanIsDigit = /^\d$/.test(span.textContent ?? "");
                 const hasBarrelWheel =
-                  changes.barrelWheelIndices.has(rawIdx) ||
+                  (spanIsDigit && changes.barrelWheelIndices.has(rawIdx)) ||
                   !!hasBarrelWheelInDOM;
                 const hasWidthAnimation =
                   span.hasAttribute("data-width-animate");
@@ -1664,8 +1705,13 @@ export const NumberFlowInput = forwardRef<HTMLElement, NumberFlowInputProps>(
                 newFormattedText,
                 index,
               );
+              // Only consider a barrel-wheel match if this span actually
+              // holds a digit; otherwise a separator can collide with an
+              // adjacent digit's barrel-wheel raw index.
+              const spanIsDigit = /^\d$/.test(span.textContent ?? "");
               const hasBarrelWheel =
-                changes.barrelWheelIndices.has(rawIdx) || !!hasBarrelWheelInDOM;
+                (spanIsDigit && changes.barrelWheelIndices.has(rawIdx)) ||
+                !!hasBarrelWheelInDOM;
               const hasWidthAnimation = span.hasAttribute("data-width-animate");
               const isCurrentlyAnimating =
                 hasBarrelWheel || hasWidthAnimation || isHidden;
@@ -2187,21 +2233,23 @@ export const NumberFlowInput = forwardRef<HTMLElement, NumberFlowInputProps>(
             cleanup();
           });
 
-          const setCursor = () => {
-            if (!spanRef.current) {
-              return;
-            }
-            // Map raw cursor position to formatted position
-            const formattedCursorPos = mapRawToFormattedIndex(
-              cleanedText,
-              newFormattedText,
-              Math.min(newCursorPos, cleanedText.length),
-            );
-            setCursorPositionInElement(spanRef.current, formattedCursorPos);
-          };
+          if (!skipCursor) {
+            const setCursor = () => {
+              if (!spanRef.current) {
+                return;
+              }
+              // Map raw cursor position to formatted position
+              const formattedCursorPos = mapRawToFormattedIndex(
+                cleanedText,
+                newFormattedText,
+                Math.min(newCursorPos, cleanedText.length),
+              );
+              setCursorPositionInElement(spanRef.current, formattedCursorPos);
+            };
 
-          setCursor();
-          requestAnimationFrame(setCursor);
+            setCursor();
+            requestAnimationFrame(setCursor);
+          }
         }
       },
       [
@@ -2237,30 +2285,29 @@ export const NumberFlowInput = forwardRef<HTMLElement, NumberFlowInputProps>(
       // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
 
+    // Animate the diff when the `value` prop changes externally (i.e. the
+    // parent updated `value` outside of our own onChange flow).
+    //
+    // This is naturally a no-op on the initial mount: `displayValue` is
+    // seeded from `actualValue` in `useState`, so the two are in sync and
+    // the guard below short-circuits until something actually changes.
     useEffect(() => {
       const newRawDisplay = actualValue?.toString() ?? "";
       const currentParsed = ["", "-", ".", "-."].includes(displayValue)
         ? undefined
         : parseFloat(displayValue);
 
-      if (currentParsed !== actualValue) {
-        setDisplayValue(newRawDisplay);
-        if (spanRef.current) {
-          if (actualValue === undefined && displayValue !== newRawDisplay) {
-            spanRef.current
-              .querySelectorAll("[data-char-index]")
-              .forEach((span) => span.remove());
-            getAllBarrelWheels(spanRef.current.parentElement!).forEach(
-              (wheel) => wheel.remove(),
-            );
-          }
-          // Format the new value for display
-          const newFormattedDisplay = formatRawValue(newRawDisplay);
-          spanRef.current.textContent = newFormattedDisplay;
-          prevFormattedValueRef.current = newFormattedDisplay;
-        }
+      if (currentParsed === actualValue || !spanRef.current) {
+        return;
       }
-    }, [actualValue, displayValue, formatRawValue]);
+
+      updateValue(newRawDisplay, newRawDisplay.length, 0, displayValue.length, {
+        skipHistory: true,
+        skipOnChange: true,
+        skipCursor: true,
+        asReplacement: true,
+      });
+    }, [actualValue, displayValue, updateValue]);
 
     // Handle format or locale prop changes - animate the transition
     useEffect(() => {
