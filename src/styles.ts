@@ -17,7 +17,7 @@ const css = `
 
 [data-numberflow-input-root] [data-numberflow-input-wrapper] {
   --overflow-size: 0.2em;
-  
+
   /* CSS containment scoped to the wrapper:
      - 'layout' isolates internal layout: digit width tweens, barrel-wheel
        insertions/removals and DOM shuffling cannot trigger reflow outside
@@ -42,6 +42,8 @@ const css = `
   padding: var(--overflow-size);
   position: relative;
   overflow: hidden;
+  flex-wrap: nowrap;
+  white-space: nowrap;
 }
 
 [data-numberflow-input-root] [data-numberflow-input-contenteditable] {

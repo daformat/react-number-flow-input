@@ -218,6 +218,11 @@ export const NumberFlowInput = forwardRef<HTMLElement, NumberFlowInputProps>(
     // Track ResizeObservers for digits with barrel wheel animations
     const resizeObserversRef = useRef<Map<number, ResizeObserver>>(new Map());
 
+    // Track the in-flight wrapper width animation so a rapid back-to-back
+    // `format` / `locale` toggle can cancel the previous animation before
+    // starting a new one (no listener / animation leaks).
+    const wrapperWidthAnimRef = useRef<Animation | null>(null);
+
     // Helper to check if a character is a "raw" character (digit, decimal, or minus)
     const isRawChar = useCallback(
       (char: string | undefined): boolean =>
@@ -2505,6 +2510,13 @@ export const NumberFlowInput = forwardRef<HTMLElement, NumberFlowInputProps>(
       }
 
       const parentContainer = spanRef.current.parentElement;
+      // FIRST measurement for the wrapper FLIP — snapshot the wrapper's
+      // visible width before any DOM mutation. The wrapper styles
+      // (`styles.ts`) enforce `box-sizing: border-box`, so `offsetWidth`
+      // is exactly the value we can plug into a WAA `width` keyframe.
+      const oldWrapperWidth = parentContainer
+        ? parentContainer.offsetWidth
+        : 0;
 
       // Collect existing barrel wheels and their associated spans BEFORE any DOM changes
       // We'll update their indices and reposition them after the DOM is rebuilt
@@ -2981,8 +2993,97 @@ export const NumberFlowInput = forwardRef<HTMLElement, NumberFlowInputProps>(
       });
       cleanup3();
 
+      // LAST measurement for the wrapper FLIP — force the DOM into its
+      // final visual state, read `offsetWidth`, then put everything
+      // back. The added-separator spans were just pinned to `width: 0`
+      // and the removing-separator spans are still in the DOM at their
+      // old widths, so the wrapper's *current* natural width is still
+      // ~`oldWrapperWidth`. To sample the LAST width we briefly clear
+      // those inline widths and detach the removing spans, take one
+      // synchronous `offsetWidth` read (which forces layout), then
+      // restore everything before the rAF below kicks off the per-
+      // separator transitions.
+      const addedSeparatorWidthSnapshot = addedSeparatorSpans.map(
+        ({ span }) => ({
+          span,
+          width: span.style.width,
+          minWidth: span.style.minWidth,
+          maxWidth: span.style.maxWidth,
+        }),
+      );
+      const removingSpanSnapshot = removingSpans.map((span) => ({
+        span,
+        parent: span.parentNode,
+        nextSibling: span.nextSibling,
+      }));
+
+      addedSeparatorWidthSnapshot.forEach(({ span }) => {
+        span.style.width = "";
+        span.style.minWidth = "";
+        span.style.maxWidth = "";
+      });
+      removingSpanSnapshot.forEach(({ span }) => {
+        span.remove();
+      });
+
+      const newWrapperWidth = parentContainer
+        ? parentContainer.offsetWidth
+        : oldWrapperWidth;
+
+      removingSpanSnapshot.forEach(({ span, parent, nextSibling }) => {
+        if (parent) {
+          parent.insertBefore(span, nextSibling);
+        }
+      });
+      addedSeparatorWidthSnapshot.forEach(
+        ({ span, width, minWidth, maxWidth }) => {
+          span.style.width = width;
+          span.style.minWidth = minWidth;
+          span.style.maxWidth = maxWidth;
+        },
+      );
+      void spanRef.current.offsetWidth;
+
       // Trigger animations in next frame
       requestAnimationFrame(() => {
+        // FLIP the wrapper between the two widths we just measured.
+        // `styles.ts` pins the wrapper to `box-sizing: border-box`, so
+        // a WAA `width` keyframe value equals the visible `offsetWidth`
+        // we measured above.
+        if (
+          parentContainer &&
+          Math.abs(newWrapperWidth - oldWrapperWidth) > 0.5
+        ) {
+          if (wrapperWidthAnimRef.current) {
+            wrapperWidthAnimRef.current.cancel();
+            wrapperWidthAnimRef.current = null;
+          }
+          const wrapperAnim = parentContainer.animate(
+            [
+              { width: `${oldWrapperWidth}px` },
+              { width: `${newWrapperWidth}px` },
+            ],
+            {
+              duration: 200,
+              easing: "cubic-bezier(.215, .61, .355, 1)",
+              fill: "forwards",
+            },
+          );
+          wrapperWidthAnimRef.current = wrapperAnim;
+          const clearWrapperAnim = () => {
+            if (wrapperWidthAnimRef.current === wrapperAnim) {
+              wrapperWidthAnimRef.current = null;
+            }
+            try {
+              wrapperAnim.cancel();
+            } catch {
+              // ignore — animation already removed/cancelled
+            }
+          };
+          wrapperAnim.onfinish = clearWrapperAnim;
+          wrapperAnim.oncancel = clearWrapperAnim;
+        }
+
         // Animate in new separators (width from 0 to final + slide up)
         addedSeparatorSpans.forEach(({ span, finalWidth }) => {
           span.setAttribute("data-show", "");
