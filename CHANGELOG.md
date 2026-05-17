@@ -1,5 +1,11 @@
 # @daformat/react-number-flow-input
 
+## 1.0.5
+
+### Patch Changes
+
+- e40beb7: fix: harden transition end listeners
+
 ## 1.0.4
 
 ### Patch Changes

@@ -1,6 +1,6 @@
 {
   "name": "@daformat/react-number-flow-input",
-  "version": "1.0.4",
+  "version": "1.0.5",
   "license": "Zero-Clause BSD",
   "description": "A react number flow input component, with no dependencies",
   "keywords": [
