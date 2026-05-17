@@ -614,7 +614,6 @@ export const NumberFlowInput = forwardRef<HTMLElement, NumberFlowInputProps>(
           }
 
           // Update the previous formatted value ref for next comparison
-          // Note: oldFormattedText was captured at line ~692 BEFORE this update,
           // so barrel wheel and span shifting logic will use the correct old value
           prevFormattedValueRef.current = newFormattedText;
 
@@ -3972,7 +3971,7 @@ export const NumberFlowInput = forwardRef<HTMLElement, NumberFlowInputProps>(
       <>
         <span
           className={className}
-          data-numberflow-input={""}
+          data-numberflow-input-root={""}
           style={{
             display: "inline-flex",
           }}

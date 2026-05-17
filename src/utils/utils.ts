@@ -102,6 +102,9 @@ export const setCursorPositionInElement = (
   selection.addRange(range);
 };
 
+/**
+ * Returns true if the given element has a transparent text color.
+ */
 export const isTransparent = (element: HTMLElement): boolean => {
   return (
     element.style.color === "transparent" ||
@@ -110,6 +113,9 @@ export const isTransparent = (element: HTMLElement): boolean => {
   );
 };
 
+/**
+ * Remove transparent color from the given element.
+ */
 export const removeTransparentColor = (span: HTMLElement): void => {
   if (
     span.style.color === "transparent" ||
@@ -117,13 +123,18 @@ export const removeTransparentColor = (span: HTMLElement): void => {
     span.style.color === ""
   ) {
     span.style.color = "";
+    return;
   }
+  // In case we missed other formats in style attribute
   const computedColor = window.getComputedStyle(span).color;
   if (computedColor === "rgba(0, 0, 0, 0)" || computedColor === "transparent") {
     span.style.color = "";
   }
 };
 
+/**
+ * Find the matching node at a given position in an element.
+ */
 export const findNodeAtPosition = (
   element: HTMLElement,
   targetPos: number,
@@ -142,6 +153,9 @@ export const findNodeAtPosition = (
   return null;
 };
 
+/**
+ * Set the cursor position in an element.
+ */
 export const setCursorAtPosition = (
   element: HTMLElement,
   position: number,
@@ -168,31 +182,6 @@ export const setCursorAtPosition = (
   sel.removeAllRanges();
   sel.addRange(range);
 };
-
-// export const getPositionFromNode = (
-//   container: HTMLElement,
-//   node: Node | null,
-//   offset: number,
-// ): number => {
-//   if (!node || !container.contains(node)) {
-//     return 0;
-//   }
-//   const range = document.createRange();
-//   range.setStart(container, 0);
-//   range.setEnd(node, offset);
-//   return range.toString().length;
-// };
-//
-// export const getBarrelWheelSelector = (
-//   index: number | null,
-//   barrelWheelClass: string,
-// ): string => {
-//   const classSelector = barrelWheelClass ? `.${barrelWheelClass}` : "";
-//   if (index === null) {
-//     return `[data-char-index]${classSelector}`;
-//   }
-//   return `[data-char-index="${index}"]${classSelector}`;
-// };
 
 /**
  * Clean up width animation styles from an element.
