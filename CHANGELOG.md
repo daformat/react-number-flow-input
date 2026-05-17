@@ -1,5 +1,11 @@
 # @daformat/react-number-flow-input
 
+## 1.0.3
+
+### Patch Changes
+
+- 44bd2cd: fix: input type, remove dead code
+
 ## 1.0.2
 
 ### Patch Changes
