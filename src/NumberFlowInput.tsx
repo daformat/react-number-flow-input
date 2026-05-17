@@ -1882,8 +1882,15 @@ export const NumberFlowInput = forwardRef<HTMLElement, NumberFlowInputProps>(
                     element.style.minWidth = `${width}px`;
                     element.style.maxWidth = `${width}px`;
 
-                    // Remove inline width styles after transition completes
+                    // Remove inline width styles after transition completes.
+                    // Filter on `e.target === element` so a transitionend
+                    // bubbled up from a descendant (e.g. a child element
+                    // styled by consumer CSS with its own transition)
+                    // cannot trigger our cleanup prematurely.
                     const handleTransitionEnd = (e: TransitionEvent) => {
+                      if (e.target !== element) {
+                        return;
+                      }
                       if (
                         ["width", "min-width", "max-width"].includes(
                           e.propertyName,
@@ -2141,7 +2148,24 @@ export const NumberFlowInput = forwardRef<HTMLElement, NumberFlowInputProps>(
               // `transitionend` before the deeply-nested rAF chain that
               // starts the digit-roll has run can still drive the cleanup
               // path that un-hides the underlying char span.
-              const handleWheelTransitionEnd = () => {
+              //
+              // We deliberately do NOT use `{once: true}` here — instead we
+              // gate on `e.target === wrapper` and remove the listener
+              // ourselves. Otherwise a transitionend that bubbles up from a
+              // descendant (e.g. one of the 0-9 digit divs styled by
+              // consumer CSS with its own transition) would burn the
+              // single-shot listener before the actual digit-roll
+              // transition has had a chance to fire, leaving the wheel
+              // sitting on top of a (transparent) char span forever.
+              const handleWheelTransitionEnd = (e: TransitionEvent) => {
+                if (e.target !== wrapper) {
+                  return;
+                }
+                wrapper.removeEventListener(
+                  "transitionend",
+                  handleWheelTransitionEnd,
+                );
+
                 const currentIndexStr = wheel.getAttribute("data-char-index");
                 const currentIndex =
                   currentIndexStr !== null
@@ -2227,7 +2251,6 @@ export const NumberFlowInput = forwardRef<HTMLElement, NumberFlowInputProps>(
               wrapper.addEventListener(
                 "transitionend",
                 handleWheelTransitionEnd,
-                { once: true },
               );
 
               wheel.style.position = "absolute";
@@ -2373,6 +2396,9 @@ export const NumberFlowInput = forwardRef<HTMLElement, NumberFlowInputProps>(
                         const handleWidthAnimationEnd = (
                           e: TransitionEvent,
                         ) => {
+                          if (e.target !== charSpan) {
+                            return;
+                          }
                           if (
                             ["width", "min-width", "max-width"].includes(
                               e.propertyName,
@@ -3042,8 +3068,14 @@ export const NumberFlowInput = forwardRef<HTMLElement, NumberFlowInputProps>(
             span.style.maxWidth = `${finalWidth}px`;
           });
 
-          // Clean up inline styles after transition
+          // Clean up inline styles after transition. We filter on
+          // `e.target === span` so bubbled transitionend events from any
+          // descendants (e.g. introduced by consumer CSS) cannot trigger
+          // cleanup prematurely.
           const handleTransitionEnd = (e: TransitionEvent) => {
+            if (e.target !== span) {
+              return;
+            }
             if (e.propertyName === "width") {
               span.style.width = "";
               span.style.minWidth = "";
@@ -3061,6 +3093,9 @@ export const NumberFlowInput = forwardRef<HTMLElement, NumberFlowInputProps>(
           const isSeparator = !isRawChar(span.textContent ?? "");
           if (!isSeparator && span.style.width) {
             const handleTransitionEnd = (e: TransitionEvent) => {
+              if (e.target !== span) {
+                return;
+              }
               if (e.propertyName === "width") {
                 span.style.width = "";
                 span.style.minWidth = "";
@@ -3085,6 +3120,9 @@ export const NumberFlowInput = forwardRef<HTMLElement, NumberFlowInputProps>(
 
           // Remove after animation completes
           const handleTransitionEnd = (e: TransitionEvent) => {
+            if (e.target !== span) {
+              return;
+            }
             if (e.propertyName === "translate" || e.propertyName === "width") {
               span.removeEventListener("transitionend", handleTransitionEnd);
               // Only remove when both animations are done

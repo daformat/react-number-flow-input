@@ -3311,6 +3311,114 @@ describe("NumberFlowInput", () => {
         });
       });
 
+      it("removes every barrel wheel after the digit-roll transitions complete", async () => {
+        // Reproduces the user-reported bug: after externally updating the
+        // `value` prop, the barrel wheels that were spawned to animate the
+        // digit swap must be removed from the DOM once their transform
+        // transitions finish. A leaked wheel sits on top of the underlying
+        // (transparent) char span and ghosts the digit.
+        const { rerender } = render(<NumberFlowInput value={2345678} format />);
+        const input = getInput();
+        const parent = input.parentElement!;
+
+        rerender(<NumberFlowInput value={9973462} format />);
+
+        // Let updateValue's rAF chain start the wrapper transitions.
+        await new Promise((resolve) => setTimeout(resolve, 50));
+
+        // Sanity check: wheels exist mid-animation.
+        expect(
+          parent.querySelectorAll("[data-barrel-wheel]").length,
+        ).toBeGreaterThan(0);
+
+        // Drive every wheel's wrapper transitionend (the handler is keyed
+        // to the wrapper, not the wheel itself).
+        parent.querySelectorAll("[data-barrel-wheel]").forEach((wheel) => {
+          const wrapper = wheel.querySelector(
+            "[data-barrel-wheel-digits-wrapper]",
+          );
+          if (wrapper) {
+            fireEvent.transitionEnd(wrapper, { propertyName: "transform" });
+          }
+        });
+
+        // After the cleanup handlers run synchronously, no wheels should
+        // remain attached to the parent container.
+        await waitFor(() => {
+          expect(parent.querySelectorAll("[data-barrel-wheel]")).toHaveLength(
+            0,
+          );
+        });
+      });
+
+      it("removes every barrel wheel after a decimal-value swap", async () => {
+        // Same as above but with a fractional value, since the integer/
+        // decimal split takes a different code path through
+        // getReplacementChanges (it right-aligns the integer part and
+        // left-aligns the decimal part).
+        const { rerender } = render(
+          <NumberFlowInput value={850400.04} format />,
+        );
+        const input = getInput();
+        const parent = input.parentElement!;
+
+        rerender(<NumberFlowInput value={123456.78} format />);
+
+        await new Promise((resolve) => setTimeout(resolve, 50));
+
+        const wheels = parent.querySelectorAll("[data-barrel-wheel]");
+        expect(wheels.length).toBeGreaterThan(0);
+
+        wheels.forEach((wheel) => {
+          const wrapper = wheel.querySelector(
+            "[data-barrel-wheel-digits-wrapper]",
+          );
+          if (wrapper) {
+            fireEvent.transitionEnd(wrapper, { propertyName: "transform" });
+          }
+        });
+
+        await waitFor(() => {
+          expect(parent.querySelectorAll("[data-barrel-wheel]")).toHaveLength(
+            0,
+          );
+        });
+      });
+
+      it("removes every barrel wheel even when value updates fire rapidly back-to-back", async () => {
+        // If a second update arrives while wheels from the first update
+        // are still mid-animation, the reuse path mutates the existing
+        // wheel's --digit-position without re-attaching a transitionend
+        // listener. Make sure that the eventual transitionend (firing
+        // for the second transition) still cleans the wheels up.
+        const { rerender } = render(<NumberFlowInput value={1234567} format />);
+        const input = getInput();
+        const parent = input.parentElement!;
+
+        rerender(<NumberFlowInput value={2345678} format />);
+        await new Promise((resolve) => setTimeout(resolve, 20));
+        rerender(<NumberFlowInput value={3456789} format />);
+        await new Promise((resolve) => setTimeout(resolve, 50));
+
+        const wheels = parent.querySelectorAll("[data-barrel-wheel]");
+        expect(wheels.length).toBeGreaterThan(0);
+
+        wheels.forEach((wheel) => {
+          const wrapper = wheel.querySelector(
+            "[data-barrel-wheel-digits-wrapper]",
+          );
+          if (wrapper) {
+            fireEvent.transitionEnd(wrapper, { propertyName: "transform" });
+          }
+        });
+
+        await waitFor(() => {
+          expect(parent.querySelectorAll("[data-barrel-wheel]")).toHaveLength(
+            0,
+          );
+        });
+      });
+
       it("does not animate on initial mount (no FOUC / no wheels for initial value)", async () => {
         const { container } = render(
           <NumberFlowInput value={9973462} format />,
