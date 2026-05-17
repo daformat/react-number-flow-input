@@ -1,5 +1,11 @@
 # @daformat/react-number-flow-input
 
+## 1.0.2
+
+### Patch Changes
+
+- bcd392f: feat: prevent large paints when possible
+
 ## 1.0.1
 
 ### Patch Changes
