@@ -3214,14 +3214,7 @@ export const NumberFlowInput = forwardRef<HTMLElement, NumberFlowInputProps>(
       // next run of this effect knows what was used last time.
       prevFormattedValueRef.current = formattedDisplayValue;
       prevDecimalRef.current = currentDecimal;
-
-    }, [
-      format,
-      locale,
-      formattedDisplayValue,
-      isRawChar,
-      computeSeparators,
-    ]);
+    }, [format, locale, formattedDisplayValue, isRawChar, computeSeparators]);
 
     // Cleanup ResizeObservers on unmount
     useEffect(() => {
