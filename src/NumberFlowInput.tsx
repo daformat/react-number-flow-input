@@ -6,11 +6,13 @@ import {
   type KeyboardEventHandler,
   useCallback,
   useEffect,
+  useInsertionEffect,
   useMemo,
   useRef,
   useState,
 } from "react";
 
+import { injectStyles } from "./styles.js";
 import {
   cleanupWidthAnimation,
   clearBarrelWheelsAndSpans,
@@ -121,6 +123,12 @@ export const NumberFlowInput = forwardRef<HTMLElement, NumberFlowInputProps>(
     },
     ref,
   ) => {
+    // Inject the component's stylesheet exactly once, before any layout
+    // effects run so the styles are in place for the very first paint.
+    useInsertionEffect(() => {
+      injectStyles();
+    }, []);
+
     const spanRef = useRef<HTMLSpanElement>(null);
     const inputRef = useRef<HTMLInputElement>(null);
     const [uncontrolledValue, setUncontrolledValue] = useState(defaultValue);
@@ -4000,8 +4008,7 @@ export const NumberFlowInput = forwardRef<HTMLElement, NumberFlowInputProps>(
               onBlur={onBlur}
               data-numberflow-input-contenteditable={""}
               style={{
-                minWidth: "39px",
-                padding: "0",
+                display: "inline-block",
               }}
               data-placeholder={placeholder}
             />
@@ -4014,6 +4021,14 @@ export const NumberFlowInput = forwardRef<HTMLElement, NumberFlowInputProps>(
               tabIndex={-1}
               data-numberflow-input-real-input={""}
               value={actualValue?.toString() ?? ""}
+              style={{
+                height: "1px",
+                left: "-9999px",
+                opacity: 0,
+                pointerEvents: "none",
+                position: "absolute",
+                width: "1px",
+              }}
             />
           </span>
         </span>
