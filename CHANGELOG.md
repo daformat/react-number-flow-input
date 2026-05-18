@@ -1,5 +1,11 @@
 # @daformat/react-number-flow-input
 
+## 1.0.9
+
+### Patch Changes
+
+- 0a8edd7: docs: update docs
+
 ## 1.0.8
 
 ### Patch Changes
