@@ -1,5 +1,11 @@
 # @daformat/react-number-flow-input
 
+## 1.0.12
+
+### Patch Changes
+
+- 5583395: (chore): Forward data-testid to the contenteditable element
+
 ## 1.0.11
 
 ### Patch Changes
