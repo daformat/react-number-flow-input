@@ -6,7 +6,7 @@ import {
   getPositionChanges,
   getReplacementChanges,
   getReplacementFormattedChanges,
-} from "./changes.js";
+} from "./diff.js";
 
 describe("getChanges", () => {
   it("marks every index as added when the old value is empty", () => {

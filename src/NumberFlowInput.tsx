@@ -22,14 +22,14 @@ import {
   setWidthConstraints,
   temporarilyRemoveAncestorsTransform,
 } from "./utils/barrelWheel.js";
+import { combineRefs } from "./utils/combineRefs.js";
 import {
   getChanges,
   getFormattedChanges,
   getPositionChanges,
   getReplacementChanges,
   getReplacementFormattedChanges,
-} from "./utils/changes.js";
-import { combineRefs } from "./utils/combineRefs.js";
+} from "./utils/diff.js";
 import {
   formatValue,
   getLocaleSeparators,
