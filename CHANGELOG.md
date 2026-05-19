@@ -1,5 +1,11 @@
 # @daformat/react-number-flow-input
 
+## 1.0.11
+
+### Patch Changes
+
+- 6890315: (chore): Rename changes to diff
+
 ## 1.0.10
 
 ### Patch Changes
