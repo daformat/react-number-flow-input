@@ -121,6 +121,7 @@ export type NumberFlowInputCommonProps = {
    * Default: true
    */
   animateOnValueChange?: boolean;
+  "data-testid"?: string;
 } & Pick<
   ComponentPropsWithoutRef<"input">,
   | "min"
@@ -160,6 +161,7 @@ export const NumberFlowInput = forwardRef<HTMLElement, NumberFlowInputProps>(
       isAllowed,
       autoFocus = false,
       animateOnValueChange = true,
+      "data-testid": dataTestId,
       ...inputProps
     },
     ref,
@@ -4444,6 +4446,7 @@ export const NumberFlowInput = forwardRef<HTMLElement, NumberFlowInputProps>(
             }}
           >
             <span
+              data-testid={dataTestId}
               role="textbox"
               tabIndex={0}
               ref={combineRefs(spanRef, ref)}
