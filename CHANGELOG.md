@@ -1,5 +1,11 @@
 # @daformat/react-number-flow-input
 
+## 1.1.1
+
+### Patch Changes
+
+- a1cdfbf: (feat): Allow both number | string value / defaultValue
+
 ## 1.1.0
 
 ### Minor Changes
