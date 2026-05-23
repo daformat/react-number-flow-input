@@ -4450,7 +4450,7 @@ export const NumberFlowInput = forwardRef<HTMLElement, NumberFlowInputProps>(
               role="textbox"
               tabIndex={0}
               ref={combineRefs(spanRef, ref)}
-              contentEditable
+              contentEditable={"plaintext-only"}
               inputMode="decimal"
               suppressContentEditableWarning
               onKeyDown={handleKeyDown}
