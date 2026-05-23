@@ -1,5 +1,11 @@
 # @daformat/react-number-flow-input
 
+## 1.0.13
+
+### Patch Changes
+
+- 8102ec2: (chore): Make contenteditable plaintext-only
+
 ## 1.0.12
 
 ### Patch Changes
