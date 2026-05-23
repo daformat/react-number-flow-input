@@ -4282,9 +4282,7 @@ describe("NumberFlowInput", () => {
       input.focus();
       await typeText(input, "1.234567890123456789");
       await waitFor(() => {
-        expect(onChangeText).toHaveBeenLastCalledWith(
-          "1.234567890123456789",
-        );
+        expect(onChangeText).toHaveBeenLastCalledWith("1.234567890123456789");
       });
     });
 
@@ -4615,11 +4613,7 @@ describe("NumberFlowInput", () => {
       const onChange = vi.fn();
       const format = vi.fn((raw: string) => `[${raw}]`);
       render(
-        <NumberFlowInput
-          onChange={onChange}
-          allowNegative
-          format={format}
-        />,
+        <NumberFlowInput onChange={onChange} allowNegative format={format} />,
       );
       const input = getInput();
       input.focus();
@@ -4643,9 +4637,7 @@ describe("NumberFlowInput", () => {
       const format = () => {
         throw new Error("boom");
       };
-      render(
-        <NumberFlowInput value={1234.5} format={format} locale="de-DE" />,
-      );
+      render(<NumberFlowInput value={1234.5} format={format} locale="de-DE" />);
       const input = getInput();
       await waitFor(() => {
         // Falls back to swapping '.' for the locale decimal (',' in de-DE).

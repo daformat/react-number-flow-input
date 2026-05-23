@@ -142,9 +142,7 @@ export type NumberFlowInputCommonProps = {
    *   - preserve the digits the user typed in order (so the diff logic
    *     can match old digits to new digits).
    */
-  format?:
-    | boolean
-    | ((displayValue: string) => string);
+  format?: boolean | ((displayValue: string) => string);
   /**
    * Whether to animate the transition when the `value` prop changes
    * externally. When `false`, external value updates snap to the new
