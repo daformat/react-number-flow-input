@@ -7,7 +7,7 @@ import { setDefaultLocale } from "./test/setup.js";
 
 // Helper to get the contentEditable element
 const getInput = () => {
-  const span = document.querySelector('[contenteditable="true"]');
+  const span = document.querySelector('[contenteditable="plaintext-only"]');
   return span as HTMLElement;
 };
 
