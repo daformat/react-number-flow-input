@@ -78,3 +78,31 @@ export const parseNumberValue = (
   const parsed = parseFloat(cleanedText);
   return isNaN(parsed) ? undefined : parsed;
 };
+
+/**
+ * Normalize a `value` / `defaultValue` prop into the component's canonical
+ * raw-string form (matches /^-?\d*\.?\d*$/).
+ *
+ * - `undefined` / `null` → `undefined` (treated as "no value").
+ * - Numbers → `value.toString()` if finite, `undefined` otherwise
+ *   (rejects `NaN`, `Infinity`, `-Infinity`).
+ * - Strings → run through the same `cleanText` pipeline used for user
+ *   input so the result is guaranteed to be a valid raw representation.
+ *   Non-numeric strings collapse to `""` (no value).
+ *
+ * The returned string never contains a locale decimal separator — it
+ * always uses `.` as the decimal, matching the rest of the component's
+ * internal pipeline.
+ */
+export const sanitizeValueProp = (
+  value: number | string | null | undefined,
+  autoAddLeadingZero: boolean,
+): string | undefined => {
+  if (value === undefined || value === null) return undefined;
+  if (typeof value === "number") {
+    return Number.isFinite(value) ? value.toString() : undefined;
+  }
+  if (typeof value !== "string") return undefined;
+  const { cleanedText } = cleanText(value, autoAddLeadingZero);
+  return cleanedText;
+};

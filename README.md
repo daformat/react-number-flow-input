@@ -203,8 +203,8 @@ import type {
 
 | Prop                   | Type                  | Default | Description                                                                                                                                                                                                 |
 | ---------------------- | --------------------- | ------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `value`                | `number \| undefined` | —       | Controlled value. When provided, changes animate as a barrel-wheel roll (except on initial mount).                                                                                                          |
-| `defaultValue`         | `number`              | —       | Uncontrolled starting value.                                                                                                                                                                                |
+| `value`                | `number \| string \| undefined` | —       | Controlled value. Accepts a number or a numeric string (see [String values](#string-values)). Changes animate as a barrel-wheel roll (except on initial mount).                                             |
+| `defaultValue`         | `number \| string`    | —       | Uncontrolled starting value. Accepts the same shapes as `value`.                                                                                                                                            |
 | `onChange`             | `(value) => void`     | —       | Called with the parsed number (or `undefined` for intermediate states like `""`, `"-"`, `"."`, `"-."`).                                                                                                     |
 | `onChangeText`         | `(rawText) => void`   | —       | Fires alongside `onChange` with the raw string representation (e.g. `"12345678901234567890.123"`). Use this when you need to preserve precision beyond JavaScript's `number` — see [Precision](#precision). |
 | `animateOnValueChange` | `boolean`             | `true`  | When `false`, external `value` updates snap instantly — no digit-roll, no separator slide, no flow animation. Typing and `format` / `locale` toggles still animate.                                         |
@@ -286,6 +286,25 @@ The component is built around a string-based internal representation, so what th
 | Formatted display, decimal part | No                                                               | The decimal part is restored verbatim from the raw string after Intl formatting.                               |
 | `value` prop → display          | Inherits the precision of the value the parent already computed. | E.g. `0.1 + 0.2 === 0.30000000000000004` — the component displays exactly what JS gave it.                     |
 | `defaultValue` prop → display   | Same as above.                                                   | —                                                                                                              |
+
+### String values
+
+To complete the round-trip for arbitrary-precision use cases, `value` and `defaultValue` also accept a **numeric string** in addition to a `number`:
+
+```tsx
+// Preserves trailing zeros that a `number` would drop
+<NumberFlowInput value="1.50" onChangeText={setRaw} />
+
+// Preserves integers beyond Number.MAX_SAFE_INTEGER
+<NumberFlowInput value="12345678901234567890" onChangeText={setRaw} />
+
+// Currency stored as a string
+<NumberFlowInput defaultValue="100.00" format />
+```
+
+Strings are sanitized with the same pipeline as user input — only characters matching `/^-?\d*\.?\d*$/` survive. Junk strings collapse to an empty value (e.g. `"$1,234.56"` → `"1234.56"`, `"abc"` → `""`). Use `.` as the decimal separator regardless of `locale`.
+
+> `onChange` always receives a parsed `number` (so the JavaScript precision boundary still applies on that side). Pair string props with `onChangeText` if your parent state must keep full precision.
 
 ### `onChangeText` for arbitrary-precision values
 

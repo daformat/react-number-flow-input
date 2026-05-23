@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
 
-import { cleanText, parseNumberValue } from "./textCleaning.js";
+import {
+  cleanText,
+  parseNumberValue,
+  sanitizeValueProp,
+} from "./textCleaning.js";
 
 describe("cleanText", () => {
   it("strips characters that are not digits, '.' or '-'", () => {
@@ -93,5 +97,69 @@ describe("parseNumberValue", () => {
 
   it("parses a trailing dot like parseFloat does", () => {
     expect(parseNumberValue("12.")).toBe(12);
+  });
+});
+
+describe("sanitizeValueProp", () => {
+  it("returns undefined for nullish input", () => {
+    expect(sanitizeValueProp(undefined, false)).toBeUndefined();
+    expect(sanitizeValueProp(null, false)).toBeUndefined();
+  });
+
+  it("returns the stringified number for finite numbers (including 0)", () => {
+    expect(sanitizeValueProp(0, false)).toBe("0");
+    expect(sanitizeValueProp(1234.5, false)).toBe("1234.5");
+    expect(sanitizeValueProp(-1.5, false)).toBe("-1.5");
+  });
+
+  it("rejects non-finite numbers", () => {
+    expect(sanitizeValueProp(NaN, false)).toBeUndefined();
+    expect(sanitizeValueProp(Infinity, false)).toBeUndefined();
+    expect(sanitizeValueProp(-Infinity, false)).toBeUndefined();
+  });
+
+  it("returns the string unchanged when it already matches /^-?\\d*\\.?\\d*$/", () => {
+    expect(sanitizeValueProp("1234.56", false)).toBe("1234.56");
+    expect(sanitizeValueProp("-1.5", false)).toBe("-1.5");
+    expect(sanitizeValueProp("", false)).toBe("");
+    expect(sanitizeValueProp(".", false)).toBe(".");
+    expect(sanitizeValueProp("-", false)).toBe("-");
+  });
+
+  it("preserves trailing zeros (precision-sensitive consumers)", () => {
+    expect(sanitizeValueProp("1.50", false)).toBe("1.50");
+    expect(sanitizeValueProp("1.500000", false)).toBe("1.500000");
+    expect(sanitizeValueProp("100", false)).toBe("100");
+  });
+
+  it("preserves integers beyond Number.MAX_SAFE_INTEGER", () => {
+    const huge = "12345678901234567890";
+    expect(sanitizeValueProp(huge, false)).toBe(huge);
+  });
+
+  it("strips non-numeric junk through cleanText", () => {
+    expect(sanitizeValueProp("$1,234.56", false)).toBe("1234.56");
+    expect(sanitizeValueProp("abc", false)).toBe("");
+    expect(sanitizeValueProp("12.34.56", false)).toBe("12.3456");
+    expect(sanitizeValueProp("--5", false)).toBe("-5");
+    expect(sanitizeValueProp("5-3", false)).toBe("53");
+  });
+
+  it("applies autoAddLeadingZero when requested", () => {
+    expect(sanitizeValueProp(".5", true)).toBe("0.5");
+    expect(sanitizeValueProp(".5", false)).toBe(".5");
+    expect(sanitizeValueProp("-.5", true)).toBe("-0.5");
+  });
+
+  it("rejects unsupported value types (booleans, objects, arrays)", () => {
+    expect(
+      sanitizeValueProp(true as unknown as string, false),
+    ).toBeUndefined();
+    expect(
+      sanitizeValueProp({} as unknown as string, false),
+    ).toBeUndefined();
+    expect(
+      sanitizeValueProp([] as unknown as string, false),
+    ).toBeUndefined();
   });
 });

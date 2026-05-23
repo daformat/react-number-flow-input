@@ -3169,6 +3169,82 @@ describe("NumberFlowInput", () => {
       expect(input.textContent).toBe("456");
     });
 
+    describe("string value / defaultValue", () => {
+      it("accepts a numeric string as a controlled `value`", () => {
+        render(<NumberFlowInput value="1234.56" />);
+        const input = getInput();
+        expect(input.textContent).toBe("1234.56");
+      });
+
+      it("preserves trailing zeros when `value` is a string", () => {
+        render(<NumberFlowInput value="1.50" />);
+        const input = getInput();
+        expect(input.textContent).toBe("1.50");
+      });
+
+      it("preserves integer precision beyond Number.MAX_SAFE_INTEGER for the string `value`", () => {
+        render(<NumberFlowInput value="12345678901234567890" />);
+        const input = getInput();
+        expect(input.textContent).toBe("12345678901234567890");
+      });
+
+      it("accepts a numeric string as `defaultValue`", () => {
+        render(<NumberFlowInput defaultValue="42.5" />);
+        const input = getInput();
+        expect(input.textContent).toBe("42.5");
+      });
+
+      it("preserves trailing zeros from a string `defaultValue`", () => {
+        render(<NumberFlowInput defaultValue="100.00" />);
+        const input = getInput();
+        expect(input.textContent).toBe("100.00");
+      });
+
+      it("sanitizes a junk string `value` (strips non-numeric chars)", () => {
+        render(<NumberFlowInput value="$1,234.56" />);
+        const input = getInput();
+        expect(input.textContent).toBe("1234.56");
+      });
+
+      it("treats a non-numeric string `value` as empty", () => {
+        render(<NumberFlowInput value="abc" placeholder="0" />);
+        const input = getInput();
+        expect(input.textContent).toBe("");
+      });
+
+      it("formats a string `value` when `format` is true", async () => {
+        render(<NumberFlowInput value="1234567.89" format />);
+        const input = getInput();
+        await waitFor(() => {
+          expect(input.textContent).toBe("1,234,567.89");
+        });
+      });
+
+      it("typing in an uncontrolled component seeded by a string `defaultValue` calls onChange with a number", async () => {
+        const onChange = vi.fn();
+        render(<NumberFlowInput defaultValue="12" onChange={onChange} />);
+        const input = getInput();
+        input.focus();
+        setCursorPosition(input, input.textContent?.length ?? 0);
+        await typeText(input, "3");
+        await waitFor(() => {
+          expect(input.textContent).toBe("123");
+          expect(onChange).toHaveBeenLastCalledWith(123);
+        });
+      });
+
+      it("animates a controlled `value` change between two strings", async () => {
+        const { rerender } = render(<NumberFlowInput value="100" />);
+        const input = getInput();
+        await waitFor(() => expect(input.textContent).toBe("100"));
+
+        rerender(<NumberFlowInput value="200" />);
+        await new Promise((resolve) => setTimeout(resolve, 50));
+        fireTransitionEndEvents(input);
+        await waitFor(() => expect(input.textContent).toBe("200"));
+      });
+    });
+
     describe("external value prop changes (formatted)", () => {
       // Helpers to read the rendered character spans in DOM order
       const getRenderedSpans = (input: HTMLElement): HTMLElement[] =>

@@ -39,7 +39,11 @@ import {
 import type { MaybeUndefined } from "./utils/maybe.js";
 import { moveElementPreservingAnimation } from "./utils/moveElementPreservingAnimation.js";
 import { isNonNullable } from "./utils/nullable.js";
-import { cleanText, parseNumberValue } from "./utils/textCleaning.js";
+import {
+  cleanText,
+  parseNumberValue,
+  sanitizeValueProp,
+} from "./utils/textCleaning.js";
 import {
   clearWidthStyles,
   getSelectionRange,
@@ -52,15 +56,30 @@ import {
 } from "./utils/utils.js";
 
 export type NumberFlowInputControlledProps = {
-  // Value if controlled
-  value: MaybeUndefined<number>;
+  /**
+   * Controlled value.
+   *
+   * Accepts a `number` or a numeric `string`. Strings are sanitized with
+   * the same pipeline as user input — only `/^-?\d*\.?\d*$/` characters
+   * are kept (extra dots, misplaced minus signs and non-numeric chars
+   * are stripped). Pass a string when you need to preserve precision
+   * (trailing zeros, integers larger than `Number.MAX_SAFE_INTEGER`,
+   * decimals beyond ~17 significant digits) — see also `onChangeText`.
+   * Use `.` as the decimal separator regardless of `locale`.
+   */
+  value: number | string | undefined;
   // Starting value if uncontrolled
   defaultValue?: never;
 };
 
 export type NumberFlowInputUncontrolledProps = {
-  // Starting value if uncontrolled
-  defaultValue?: number;
+  /**
+   * Uncontrolled starting value.
+   *
+   * Accepts a `number` or a numeric `string`. See `value` for the
+   * sanitization rules and precision rationale.
+   */
+  defaultValue?: number | string;
   // Value if controlled
   value?: never;
 };
@@ -206,12 +225,52 @@ export const NumberFlowInput = forwardRef<HTMLElement, NumberFlowInputProps>(
 
     const spanRef = useRef<HTMLSpanElement>(null);
     const inputRef = useRef<HTMLInputElement>(null);
-    const [uncontrolledValue, setUncontrolledValue] = useState(defaultValue);
+
     const isControlled = value !== undefined;
-    const actualValue = isControlled ? value : uncontrolledValue;
+
+    // Sanitize the controlled `value` prop on every render. Numbers go
+    // through `.toString()`; strings go through the same `cleanText`
+    // pipeline as user input so the result always matches the
+    // component's canonical raw form (/^-?\d*\.?\d*$/).
+    const valuePropRaw = useMemo(
+      () =>
+        isControlled
+          ? sanitizeValueProp(value, autoAddLeadingZero)
+          : undefined,
+      [isControlled, value, autoAddLeadingZero],
+    );
+
+    // `defaultValue` semantically matches React's `useState(initial)` —
+    // it's only consulted on mount. Sanitize it once via the same
+    // helper.
+    const initialDefaultValueRawRef = useRef<string | undefined>(undefined);
+    if (initialDefaultValueRawRef.current === undefined) {
+      initialDefaultValueRawRef.current =
+        sanitizeValueProp(defaultValue, autoAddLeadingZero) ?? "";
+    }
+    const defaultValueRaw = initialDefaultValueRawRef.current;
+
+    const [uncontrolledValue, setUncontrolledValue] = useState<
+      MaybeUndefined<number>
+    >(() => parseNumberValue(defaultValueRaw));
+
+    // Numeric view of the currently effective value. Used for change
+    // detection in the external-value-change effect and for the hidden
+    // `<input value>` mirror.
+    const actualValueNumber = isControlled
+      ? parseNumberValue(valuePropRaw ?? "")
+      : uncontrolledValue;
+
+    // Raw view of the currently effective value. Used to seed
+    // `displayValue` and for any code path that needs the unparsed
+    // string (preserves trailing zeros, large-integer precision, etc.).
+    const actualValueRaw = isControlled
+      ? valuePropRaw
+      : uncontrolledValue?.toString();
+
     // Raw display value (unformatted, e.g., "1234.56")
     const [displayValue, setDisplayValue] = useState(
-      actualValue?.toString() ?? "",
+      () => (isControlled ? valuePropRaw : defaultValueRaw) ?? "",
     );
 
     const [, setCursorPosition] = useState(0);
@@ -2620,12 +2679,11 @@ export const NumberFlowInput = forwardRef<HTMLElement, NumberFlowInputProps>(
       }
       // Initialize history with initial state
       if (historyRef.current.length === 0) {
-        const initialValue = actualValue;
         historyRef.current.push({
           text: displayValue,
           cursorPosBefore: 0,
           cursorPosAfter: 0,
-          value: initialValue,
+          value: actualValueNumber,
         });
         historyIndexRef.current = 0;
       }
@@ -2636,15 +2694,16 @@ export const NumberFlowInput = forwardRef<HTMLElement, NumberFlowInputProps>(
     // parent updated `value` outside of our own onChange flow).
     //
     // This is naturally a no-op on the initial mount: `displayValue` is
-    // seeded from `actualValue` in `useState`, so the two are in sync and
-    // the guard below short-circuits until something actually changes.
+    // seeded from the same raw representation in `useState`, so the two
+    // are in sync and the guard below short-circuits until something
+    // actually changes.
     useEffect(() => {
-      const newRawDisplay = actualValue?.toString() ?? "";
+      const newRawDisplay = actualValueRaw ?? "";
       const currentParsed = ["", "-", ".", "-."].includes(displayValue)
         ? undefined
         : parseFloat(displayValue);
 
-      if (currentParsed === actualValue || !spanRef.current) {
+      if (currentParsed === actualValueNumber || !spanRef.current) {
         return;
       }
 
@@ -2680,7 +2739,8 @@ export const NumberFlowInput = forwardRef<HTMLElement, NumberFlowInputProps>(
         asReplacement: true,
       });
     }, [
-      actualValue,
+      actualValueRaw,
+      actualValueNumber,
       displayValue,
       updateValue,
       animateOnValueChange,
@@ -4510,7 +4570,7 @@ export const NumberFlowInput = forwardRef<HTMLElement, NumberFlowInputProps>(
               readOnly
               tabIndex={-1}
               data-numberflow-input-real-input={""}
-              value={actualValue?.toString() ?? ""}
+              value={actualValueRaw ?? ""}
               style={{
                 height: "1px",
                 left: "-9999px",
