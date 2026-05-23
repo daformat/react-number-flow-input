@@ -152,14 +152,8 @@ describe("sanitizeValueProp", () => {
   });
 
   it("rejects unsupported value types (booleans, objects, arrays)", () => {
-    expect(
-      sanitizeValueProp(true as unknown as string, false),
-    ).toBeUndefined();
-    expect(
-      sanitizeValueProp({} as unknown as string, false),
-    ).toBeUndefined();
-    expect(
-      sanitizeValueProp([] as unknown as string, false),
-    ).toBeUndefined();
+    expect(sanitizeValueProp(true as unknown as string, false)).toBeUndefined();
+    expect(sanitizeValueProp({} as unknown as string, false)).toBeUndefined();
+    expect(sanitizeValueProp([] as unknown as string, false)).toBeUndefined();
   });
 });

@@ -201,13 +201,13 @@ import type {
 
 ### Value props
 
-| Prop                   | Type                  | Default | Description                                                                                                                                                                                                 |
-| ---------------------- | --------------------- | ------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Prop                   | Type                            | Default | Description                                                                                                                                                                                                 |
+| ---------------------- | ------------------------------- | ------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `value`                | `number \| string \| undefined` | —       | Controlled value. Accepts a number or a numeric string (see [String values](#string-values)). Changes animate as a barrel-wheel roll (except on initial mount).                                             |
-| `defaultValue`         | `number \| string`    | —       | Uncontrolled starting value. Accepts the same shapes as `value`.                                                                                                                                            |
-| `onChange`             | `(value) => void`     | —       | Called with the parsed number (or `undefined` for intermediate states like `""`, `"-"`, `"."`, `"-."`).                                                                                                     |
-| `onChangeText`         | `(rawText) => void`   | —       | Fires alongside `onChange` with the raw string representation (e.g. `"12345678901234567890.123"`). Use this when you need to preserve precision beyond JavaScript's `number` — see [Precision](#precision). |
-| `animateOnValueChange` | `boolean`             | `true`  | When `false`, external `value` updates snap instantly — no digit-roll, no separator slide, no flow animation. Typing and `format` / `locale` toggles still animate.                                         |
+| `defaultValue`         | `number \| string`              | —       | Uncontrolled starting value. Accepts the same shapes as `value`.                                                                                                                                            |
+| `onChange`             | `(value) => void`               | —       | Called with the parsed number (or `undefined` for intermediate states like `""`, `"-"`, `"."`, `"-."`).                                                                                                     |
+| `onChangeText`         | `(rawText) => void`             | —       | Fires alongside `onChange` with the raw string representation (e.g. `"12345678901234567890.123"`). Use this when you need to preserve precision beyond JavaScript's `number` — see [Precision](#precision). |
+| `animateOnValueChange` | `boolean`                       | `true`  | When `false`, external `value` updates snap instantly — no digit-roll, no separator slide, no flow animation. Typing and `format` / `locale` toggles still animate.                                         |
 
 > `value` and `defaultValue` are mutually exclusive — TypeScript will enforce this.
 

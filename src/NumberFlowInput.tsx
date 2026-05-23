@@ -234,9 +234,7 @@ export const NumberFlowInput = forwardRef<HTMLElement, NumberFlowInputProps>(
     // component's canonical raw form (/^-?\d*\.?\d*$/).
     const valuePropRaw = useMemo(
       () =>
-        isControlled
-          ? sanitizeValueProp(value, autoAddLeadingZero)
-          : undefined,
+        isControlled ? sanitizeValueProp(value, autoAddLeadingZero) : undefined,
       [isControlled, value, autoAddLeadingZero],
     );
 
