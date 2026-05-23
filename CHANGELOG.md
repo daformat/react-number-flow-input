@@ -1,5 +1,11 @@
 # @daformat/react-number-flow-input
 
+## 1.1.0
+
+### Minor Changes
+
+- 716a3ca: (feat): Add onChangeText and allow passing custom formatter through the format prop
+
 ## 1.0.13
 
 ### Patch Changes
