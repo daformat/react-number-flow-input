@@ -103,6 +103,26 @@ User typing and `format` / `locale` toggles still animate; only the prop-driven 
 <NumberFlowInput format locale="de-DE" value={1234567} /> // → "1.234.567"
 ```
 
+#### Custom formatter
+
+`format` also accepts a function for full control over the displayed string. The callback receives the raw display value (digits, optional leading `-`, optional single `.` as decimal) and must return the formatted text:
+
+```tsx
+<NumberFlowInput
+  defaultValue={1234.5}
+  format={(raw) => `$ ${raw}`}
+  onChange={console.log}
+/>
+// → "$ 1234.5"
+```
+
+The callback is only invoked for "real" values — empty / `"-"` / `"."` / `"-."` intermediate states bypass it and render verbatim. If your function throws, the component falls back to a safe locale-decimal-swap output.
+
+For correct cursor positioning and animation diffing, your output should:
+
+- use the locale's decimal character (or `.` if no locale is set);
+- preserve the digit order from the raw input.
+
 ### Decimal scale & negative numbers
 
 ```tsx
@@ -186,6 +206,7 @@ import type {
 | `value`                | `number \| undefined` | —       | Controlled value. When provided, changes animate as a barrel-wheel roll (except on initial mount).                                                                  |
 | `defaultValue`         | `number`              | —       | Uncontrolled starting value.                                                                                                                                        |
 | `onChange`             | `(value) => void`     | —       | Called with the parsed number (or `undefined` for intermediate states like `""`, `"-"`, `"."`, `"-."`).                                                             |
+| `onChangeText`         | `(rawText) => void`   | —       | Fires alongside `onChange` with the raw string representation (e.g. `"12345678901234567890.123"`). Use this when you need to preserve precision beyond JavaScript's `number` — see [Precision](#precision). |
 | `animateOnValueChange` | `boolean`             | `true`  | When `false`, external `value` updates snap instantly — no digit-roll, no separator slide, no flow animation. Typing and `format` / `locale` toggles still animate. |
 
 > `value` and `defaultValue` are mutually exclusive — TypeScript will enforce this.
@@ -194,7 +215,7 @@ import type {
 
 | Prop                 | Type                    | Default | Description                                                                     |
 | -------------------- | ----------------------- | ------- | ------------------------------------------------------------------------------- |
-| `format`             | `boolean`               | `false` | When true, the display uses `Intl.NumberFormat` grouping.                       |
+| `format`             | `boolean \| (raw: string) => string` | `false` | `true` → group via `Intl.NumberFormat`. A function takes full control of the output (see [Custom formatter](#custom-formatter)). |
 | `locale`             | `string \| Intl.Locale` | —       | Locale used for decimal and group separators. Defaults to the runtime's locale. |
 | `decimalScale`       | `number`                | —       | Max number of fractional digits. `0` forbids a decimal point entirely.          |
 | `autoAddLeadingZero` | `boolean`               | `false` | Convert leading `.5` → `0.5` (and `-.5` → `-0.5`) automatically.                |
@@ -252,6 +273,43 @@ You can target any of the above data attributes to customize the look:
 ```
 
 Animation timings live in the injected stylesheet and use `cubic-bezier(.215, .61, .355, 1)` (ease-out-cubic). The flow-in animation is `0.2s`; the barrel-wheel roll and width animation are `0.4s`.
+
+## Precision
+
+The component is built around a string-based internal representation, so what the user types is preserved character-by-character — there's no silent rounding inside the input itself. Where you _can_ run into precision loss is at the boundaries of JavaScript's `number` type:
+
+| Boundary                        | Lossy?                                                            | Reason                                                                                                            |
+| ------------------------------- | ----------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------- |
+| User typing → DOM display       | No                                                                | Every keystroke is applied to a string; the DOM is updated with `textContent`.                                    |
+| User typing → `onChange(value)` | Yes, for `> Number.MAX_SAFE_INTEGER` or `> 15–17` sig. figs.      | `value` is `parseFloat(rawText)`; IEEE 754 double cannot represent every decimal exactly.                         |
+| Formatted display, integer part | Yes, for integers `> Number.MAX_SAFE_INTEGER`                     | When `format` is on, the integer part is re-formatted through `Intl.NumberFormat.format(parseFloat(rawText))`.    |
+| Formatted display, decimal part | No                                                                | The decimal part is restored verbatim from the raw string after Intl formatting.                                  |
+| `value` prop → display          | Inherits the precision of the value the parent already computed.  | E.g. `0.1 + 0.2 === 0.30000000000000004` — the component displays exactly what JS gave it.                        |
+| `defaultValue` prop → display   | Same as above.                                                    | —                                                                                                                 |
+
+### `onChangeText` for arbitrary-precision values
+
+When you need the exact digits the user typed (BigInt math, currency stored as strings, big-decimal libraries, etc.), use the `onChangeText` callback — it fires alongside `onChange` with the raw string representation:
+
+```tsx
+import { useState } from "react";
+import { NumberFlowInput } from "@daformat/react-number-flow-input";
+
+function HugeNumber() {
+  const [raw, setRaw] = useState("");
+
+  return (
+    <>
+      <NumberFlowInput onChangeText={setRaw} />
+      <p>BigInt: {raw === "" ? "—" : BigInt(raw.split(".")[0]).toString()}</p>
+    </>
+  );
+}
+```
+
+The string is the unformatted internal representation: digits, an optional leading `-`, and at most one `.` (always `.`, never the locale decimal). Intermediate states like `""`, `"-"`, `"."`, `"-."` are surfaced as-is so consumers can render them if they want.
+
+If you only consume `onChange` (the typical case), be aware that values past `9.007 × 10¹⁵` (the safe-integer ceiling) or with more than ~17 significant digits will round.
 
 ## Server-side rendering
 

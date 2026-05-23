@@ -4241,6 +4241,88 @@ describe("NumberFlowInput", () => {
       });
     });
 
+    it("calls onChangeText with the raw string representation as the user types", async () => {
+      const onChange = vi.fn();
+      const onChangeText = vi.fn();
+      render(
+        <NumberFlowInput onChange={onChange} onChangeText={onChangeText} />,
+      );
+      const input = getInput();
+      input.focus();
+      await typeText(input, "42");
+      await waitFor(() => {
+        expect(onChange).toHaveBeenLastCalledWith(42);
+        expect(onChangeText).toHaveBeenLastCalledWith("42");
+      });
+    });
+
+    it("onChangeText preserves precision beyond Number.MAX_SAFE_INTEGER", async () => {
+      // 9007199254740993 = MAX_SAFE_INTEGER + 2, which `parseFloat`
+      // rounds down to 9007199254740992. The string-based callback must
+      // expose the user's exact digits.
+      const onChange = vi.fn();
+      const onChangeText = vi.fn();
+      render(
+        <NumberFlowInput onChange={onChange} onChangeText={onChangeText} />,
+      );
+      const input = getInput();
+      input.focus();
+      await typeText(input, "9007199254740993");
+      await waitFor(() => {
+        expect(onChangeText).toHaveBeenLastCalledWith("9007199254740993");
+        // parseFloat rounds — `onChange` cannot represent the exact value.
+        expect(onChange).toHaveBeenLastCalledWith(9007199254740992);
+      });
+    });
+
+    it("onChangeText preserves long decimal precision (>17 sig figs)", async () => {
+      const onChangeText = vi.fn();
+      render(<NumberFlowInput onChangeText={onChangeText} />);
+      const input = getInput();
+      input.focus();
+      await typeText(input, "1.234567890123456789");
+      await waitFor(() => {
+        expect(onChangeText).toHaveBeenLastCalledWith(
+          "1.234567890123456789",
+        );
+      });
+    });
+
+    it("onChangeText emits intermediate states verbatim", async () => {
+      const onChangeText = vi.fn();
+      render(<NumberFlowInput allowNegative onChangeText={onChangeText} />);
+      const input = getInput();
+      input.focus();
+      await typeText(input, "-");
+      await waitFor(() => {
+        expect(onChangeText).toHaveBeenLastCalledWith("-");
+      });
+      await typeText(input, ".");
+      await waitFor(() => {
+        expect(onChangeText).toHaveBeenLastCalledWith("-.");
+      });
+    });
+
+    it("onChangeText fires alongside onChange and is not affected by isAllowed", async () => {
+      // If `isAllowed` rejects the value, neither callback should fire.
+      const onChange = vi.fn();
+      const onChangeText = vi.fn();
+      render(
+        <NumberFlowInput
+          isAllowed={(v) => v == null || v <= 5}
+          onChange={onChange}
+          onChangeText={onChangeText}
+        />,
+      );
+      const input = getInput();
+      input.focus();
+      await typeText(input, "9");
+      await waitFor(() => {
+        expect(onChange).not.toHaveBeenCalled();
+        expect(onChangeText).not.toHaveBeenCalled();
+      });
+    });
+
     it("decimalScale=2 limits the number of decimal digits the user can type", async () => {
       const onChange = vi.fn();
       render(<NumberFlowInput decimalScale={2} onChange={onChange} />);
@@ -4501,6 +4583,73 @@ describe("NumberFlowInput", () => {
         // German format: "1.234.567"
         expect(input.textContent).toBe("1.234.567");
         expect(onChange).toHaveBeenLastCalledWith(1234567);
+      });
+    });
+
+    it("accepts a function as `format` for custom output (e.g. currency prefix)", async () => {
+      const onChange = vi.fn();
+      const format = (raw: string) => `$ ${raw}`;
+      render(
+        <NumberFlowInput value={1234} format={format} onChange={onChange} />,
+      );
+      const input = getInput();
+      await waitFor(() => {
+        expect(input.textContent).toBe("$ 1234");
+      });
+    });
+
+    it("function-format reformats when the user types", async () => {
+      const onChange = vi.fn();
+      const format = (raw: string) => raw.split("").join("·");
+      render(<NumberFlowInput onChange={onChange} format={format} />);
+      const input = getInput();
+      input.focus();
+      await typeText(input, "42");
+      await waitFor(() => {
+        expect(input.textContent).toBe("4·2");
+        expect(onChange).toHaveBeenLastCalledWith(42);
+      });
+    });
+
+    it("function-format still surfaces intermediate states verbatim", async () => {
+      const onChange = vi.fn();
+      const format = vi.fn((raw: string) => `[${raw}]`);
+      render(
+        <NumberFlowInput
+          onChange={onChange}
+          allowNegative
+          format={format}
+        />,
+      );
+      const input = getInput();
+      input.focus();
+
+      // "-" alone is an intermediate state — `format` must NOT be invoked.
+      await typeText(input, "-");
+      await waitFor(() => {
+        expect(input.textContent).toBe("-");
+      });
+      expect(format).not.toHaveBeenCalledWith("-");
+
+      // After typing a digit it becomes a real value and `format` is used.
+      await typeText(input, "5");
+      await waitFor(() => {
+        expect(input.textContent).toBe("[-5]");
+      });
+      expect(format).toHaveBeenCalledWith("-5");
+    });
+
+    it("function-format that throws falls back to the locale-decimal-swap path", async () => {
+      const format = () => {
+        throw new Error("boom");
+      };
+      render(
+        <NumberFlowInput value={1234.5} format={format} locale="de-DE" />,
+      );
+      const input = getInput();
+      await waitFor(() => {
+        // Falls back to swapping '.' for the locale decimal (',' in de-DE).
+        expect(input.textContent).toBe("1234,5");
       });
     });
 

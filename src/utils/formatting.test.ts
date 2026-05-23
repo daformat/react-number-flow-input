@@ -159,6 +159,60 @@ describe("formatValue", () => {
       }),
     ).toBe("abc");
   });
+
+  it("when format is a function, delegates formatting of real values to it", () => {
+    const format = (raw: string) => `[${raw}]`;
+    expect(
+      formatValue("1234.5", {
+        format,
+        autoAddLeadingZero: false,
+        separators: enSep,
+      }),
+    ).toBe("[1234.5]");
+  });
+
+  it("when format is a function, intermediate states bypass the callback", () => {
+    const format = (raw: string) => `SHOULD_NOT_RUN(${raw})`;
+    // The intermediate-state handler runs before the user's function, so
+    // these are still surfaced as the canonical intermediate strings.
+    expect(
+      formatValue("", { format, autoAddLeadingZero: false, separators: enSep }),
+    ).toBe("");
+    expect(
+      formatValue("-", {
+        format,
+        autoAddLeadingZero: false,
+        separators: enSep,
+      }),
+    ).toBe("-");
+    expect(
+      formatValue(".", {
+        format,
+        autoAddLeadingZero: false,
+        separators: deSep,
+      }),
+    ).toBe(",");
+    expect(
+      formatValue("-.", {
+        format,
+        autoAddLeadingZero: false,
+        separators: deSep,
+      }),
+    ).toBe("-,");
+  });
+
+  it("when format is a function that throws, falls back to a safe decimal-swap string", () => {
+    const format = () => {
+      throw new Error("kaboom");
+    };
+    expect(
+      formatValue("1234.56", {
+        format,
+        autoAddLeadingZero: false,
+        separators: deSep,
+      }),
+    ).toBe("1234,56");
+  });
 });
 
 describe("isRawCharacter", () => {

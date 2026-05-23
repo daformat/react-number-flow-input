@@ -71,6 +71,23 @@ export type NumberFlowInputCommonProps = {
    */
   onChange?: (value: MaybeUndefined<number>) => void;
   /**
+   * Callback fired alongside `onChange`, but receiving the raw string
+   * representation of the input (e.g. `"12345678901234567890.123"`).
+   *
+   * `onChange` exposes a JavaScript `number`, which is IEEE 754 double
+   * precision and therefore rounds values outside
+   * `Number.MAX_SAFE_INTEGER` (~9.007 × 10¹⁵) or with more than ~15–17
+   * significant digits. Use `onChangeText` when you need to preserve the
+   * user's exact input — e.g. arbitrary-precision math, BigInt parsing,
+   * monetary values stored as strings.
+   *
+   * The argument is the unformatted raw text — digits, an optional
+   * leading `-`, and an optional single `.` (always `.`, never the
+   * locale decimal). Intermediate states like `""`, `"-"`, `"."`,
+   * `"-."` are reported verbatim so consumers can render them if needed.
+   */
+  onChangeText?: (rawText: string) => void;
+  /**
    * should the component add leading zero when the user types a decimal point?
    */
   autoAddLeadingZero?: boolean;
@@ -106,12 +123,28 @@ export type NumberFlowInputCommonProps = {
    */
   locale?: Intl.UnicodeBCP47LocaleIdentifier | Intl.Locale;
   /**
-   * Whether to format the display using Intl.NumberFormat.
-   * If true with locale, uses the specified locale.
-   * If true without locale, uses the browser's default locale.
-   * Default: false (no formatting)
+   * Whether to format the display.
+   *
+   * - `false` (default): no grouping; only the locale's decimal
+   *   separator is applied (so typing `1.5` with `locale="de-DE"`
+   *   renders `"1,5"`).
+   * - `true`: use `Intl.NumberFormat` with the supplied `locale` (or
+   *   the runtime default if `locale` is not set).
+   * - `(displayValue: string) => string`: a custom formatter. Receives
+   *   the raw, unformatted input (digits, optional leading `-`, optional
+   *   single `.` as decimal). Whatever you return is rendered verbatim.
+   *
+   * When you provide a function, you take ownership of the formatting,
+   * but for correct cursor positioning and animation diffing your output
+   * should:
+   *   - use the locale's decimal character (or `.` if no locale is set)
+   *     so the component's raw↔formatted index mapping stays accurate;
+   *   - preserve the digits the user typed in order (so the diff logic
+   *     can match old digits to new digits).
    */
-  format?: boolean;
+  format?:
+    | boolean
+    | ((displayValue: string) => string);
   /**
    * Whether to animate the transition when the `value` prop changes
    * externally. When `false`, external value updates snap to the new
@@ -148,6 +181,7 @@ export const NumberFlowInput = forwardRef<HTMLElement, NumberFlowInputProps>(
       value,
       defaultValue,
       onChange,
+      onChangeText,
       autoAddLeadingZero = false,
       allowNegative,
       decimalScale,
@@ -694,6 +728,7 @@ export const NumberFlowInput = forwardRef<HTMLElement, NumberFlowInputProps>(
 
         if (!skipOnChange) {
           onChange?.(numberValue);
+          onChangeText?.(cleanedText);
         }
         setUncontrolledValue(numberValue);
         setDisplayValue(cleanedText);
@@ -2567,6 +2602,7 @@ export const NumberFlowInput = forwardRef<HTMLElement, NumberFlowInputProps>(
         isAllowed,
         displayValue,
         onChange,
+        onChangeText,
         autoAddLeadingZero,
         repositionAllBarrelWheels,
         addToHistory,
@@ -3384,6 +3420,7 @@ export const NumberFlowInput = forwardRef<HTMLElement, NumberFlowInputProps>(
         setDisplayValue(historyItem.text);
         setUncontrolledValue(historyItem.value);
         onChange?.(historyItem.value);
+        onChangeText?.(historyItem.text);
         setCursorPosition(cursorPos);
 
         if (spanRef.current) {
@@ -3432,7 +3469,7 @@ export const NumberFlowInput = forwardRef<HTMLElement, NumberFlowInputProps>(
           requestAnimationFrame(restoreCursorFormatted);
         }
       },
-      [onChange, formatRawValue, mapRawToFormattedIndex],
+      [onChange, onChangeText, formatRawValue, mapRawToFormattedIndex],
     );
 
     const applyHistoryItem = useCallback(

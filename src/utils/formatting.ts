@@ -43,9 +43,11 @@ const formatIntermediateState = (
   return null;
 };
 
+export type FormatFunction = (displayValue: string) => string;
+
 type FormatOptions = {
   locale?: Intl.UnicodeBCP47LocaleIdentifier | Intl.Locale;
-  format: boolean;
+  format: boolean | FormatFunction;
   autoAddLeadingZero: boolean;
   separators: Separators;
 };
@@ -56,7 +58,7 @@ type FormatOptions = {
  * - Intermediate states (empty, minus only, decimal only, minus-decimal)
  * - Leading decimal preservation
  * - Locale-specific decimal separators
- * - Number formatting with Intl.NumberFormat
+ * - Number formatting with Intl.NumberFormat or a user-provided callback
  * - Trailing decimal preservation
  * - User-typed decimal digits preservation
  */
@@ -71,6 +73,18 @@ export const formatValue = (
   const intermediateResult = formatIntermediateState(rawValue, decimal);
   if (intermediateResult !== null) {
     return intermediateResult;
+  }
+
+  // User-supplied format function takes full control of the output for
+  // any "real" value. Intermediate states are still handled above so the
+  // function isn't called with things like "" or "-." that aren't valid
+  // numbers. Errors fall back to a safe locale-decimal-only string.
+  if (typeof format === "function") {
+    try {
+      return format(rawValue);
+    } catch {
+      return rawValue.replace(".", decimal);
+    }
   }
 
   const numericValue = parseFloat(rawValue);
