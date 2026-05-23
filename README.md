@@ -201,25 +201,25 @@ import type {
 
 ### Value props
 
-| Prop                   | Type                  | Default | Description                                                                                                                                                         |
-| ---------------------- | --------------------- | ------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `value`                | `number \| undefined` | —       | Controlled value. When provided, changes animate as a barrel-wheel roll (except on initial mount).                                                                  |
-| `defaultValue`         | `number`              | —       | Uncontrolled starting value.                                                                                                                                        |
-| `onChange`             | `(value) => void`     | —       | Called with the parsed number (or `undefined` for intermediate states like `""`, `"-"`, `"."`, `"-."`).                                                             |
+| Prop                   | Type                  | Default | Description                                                                                                                                                                                                 |
+| ---------------------- | --------------------- | ------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `value`                | `number \| undefined` | —       | Controlled value. When provided, changes animate as a barrel-wheel roll (except on initial mount).                                                                                                          |
+| `defaultValue`         | `number`              | —       | Uncontrolled starting value.                                                                                                                                                                                |
+| `onChange`             | `(value) => void`     | —       | Called with the parsed number (or `undefined` for intermediate states like `""`, `"-"`, `"."`, `"-."`).                                                                                                     |
 | `onChangeText`         | `(rawText) => void`   | —       | Fires alongside `onChange` with the raw string representation (e.g. `"12345678901234567890.123"`). Use this when you need to preserve precision beyond JavaScript's `number` — see [Precision](#precision). |
-| `animateOnValueChange` | `boolean`             | `true`  | When `false`, external `value` updates snap instantly — no digit-roll, no separator slide, no flow animation. Typing and `format` / `locale` toggles still animate. |
+| `animateOnValueChange` | `boolean`             | `true`  | When `false`, external `value` updates snap instantly — no digit-roll, no separator slide, no flow animation. Typing and `format` / `locale` toggles still animate.                                         |
 
 > `value` and `defaultValue` are mutually exclusive — TypeScript will enforce this.
 
 ### Formatting
 
-| Prop                 | Type                    | Default | Description                                                                     |
-| -------------------- | ----------------------- | ------- | ------------------------------------------------------------------------------- |
+| Prop                 | Type                                 | Default | Description                                                                                                                      |
+| -------------------- | ------------------------------------ | ------- | -------------------------------------------------------------------------------------------------------------------------------- |
 | `format`             | `boolean \| (raw: string) => string` | `false` | `true` → group via `Intl.NumberFormat`. A function takes full control of the output (see [Custom formatter](#custom-formatter)). |
-| `locale`             | `string \| Intl.Locale` | —       | Locale used for decimal and group separators. Defaults to the runtime's locale. |
-| `decimalScale`       | `number`                | —       | Max number of fractional digits. `0` forbids a decimal point entirely.          |
-| `autoAddLeadingZero` | `boolean`               | `false` | Convert leading `.5` → `0.5` (and `-.5` → `-0.5`) automatically.                |
-| `allowNegative`      | `boolean`               | `false` | Allow typing a leading `-` to enter negative numbers.                           |
+| `locale`             | `string \| Intl.Locale`              | —       | Locale used for decimal and group separators. Defaults to the runtime's locale.                                                  |
+| `decimalScale`       | `number`                             | —       | Max number of fractional digits. `0` forbids a decimal point entirely.                                                           |
+| `autoAddLeadingZero` | `boolean`                            | `false` | Convert leading `.5` → `0.5` (and `-.5` → `-0.5`) automatically.                                                                 |
+| `allowNegative`      | `boolean`                            | `false` | Allow typing a leading `-` to enter negative numbers.                                                                            |
 
 ### Editing constraints
 
@@ -278,14 +278,14 @@ Animation timings live in the injected stylesheet and use `cubic-bezier(.215, .6
 
 The component is built around a string-based internal representation, so what the user types is preserved character-by-character — there's no silent rounding inside the input itself. Where you _can_ run into precision loss is at the boundaries of JavaScript's `number` type:
 
-| Boundary                        | Lossy?                                                            | Reason                                                                                                            |
-| ------------------------------- | ----------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------- |
-| User typing → DOM display       | No                                                                | Every keystroke is applied to a string; the DOM is updated with `textContent`.                                    |
-| User typing → `onChange(value)` | Yes, for `> Number.MAX_SAFE_INTEGER` or `> 15–17` sig. figs.      | `value` is `parseFloat(rawText)`; IEEE 754 double cannot represent every decimal exactly.                         |
-| Formatted display, integer part | Yes, for integers `> Number.MAX_SAFE_INTEGER`                     | When `format` is on, the integer part is re-formatted through `Intl.NumberFormat.format(parseFloat(rawText))`.    |
-| Formatted display, decimal part | No                                                                | The decimal part is restored verbatim from the raw string after Intl formatting.                                  |
-| `value` prop → display          | Inherits the precision of the value the parent already computed.  | E.g. `0.1 + 0.2 === 0.30000000000000004` — the component displays exactly what JS gave it.                        |
-| `defaultValue` prop → display   | Same as above.                                                    | —                                                                                                                 |
+| Boundary                        | Lossy?                                                           | Reason                                                                                                         |
+| ------------------------------- | ---------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------- |
+| User typing → DOM display       | No                                                               | Every keystroke is applied to a string; the DOM is updated with `textContent`.                                 |
+| User typing → `onChange(value)` | Yes, for `> Number.MAX_SAFE_INTEGER` or `> 15–17` sig. figs.     | `value` is `parseFloat(rawText)`; IEEE 754 double cannot represent every decimal exactly.                      |
+| Formatted display, integer part | Yes, for integers `> Number.MAX_SAFE_INTEGER`                    | When `format` is on, the integer part is re-formatted through `Intl.NumberFormat.format(parseFloat(rawText))`. |
+| Formatted display, decimal part | No                                                               | The decimal part is restored verbatim from the raw string after Intl formatting.                               |
+| `value` prop → display          | Inherits the precision of the value the parent already computed. | E.g. `0.1 + 0.2 === 0.30000000000000004` — the component displays exactly what JS gave it.                     |
+| `defaultValue` prop → display   | Same as above.                                                   | —                                                                                                              |
 
 ### `onChangeText` for arbitrary-precision values
 
