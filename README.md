@@ -1,6 +1,7 @@
 # React number flow input
 
 ![NPM Version](https://img.shields.io/npm/v/%40daformat%2Freact-number-flow-input)
+![gzipped](https://img.shields.io/bundlephobia/minzip/@daformat/react-number-flow-input?color=%238ab4f8&label=gzip)
 ![NPM Downloads](https://img.shields.io/npm/dm/%40daformat%2Freact-number-flow-input)  
 [![Follow daformat on GitHub](https://img.shields.io/github/followers/daformat?label=Follow%20%40daformat&style=social)](https://github.com/daformat)
 [![Follow daformat on X](https://img.shields.io/twitter/follow/daformat?label=Follow%20%40daformat&style=social)](https://twitter.com/daformat)
@@ -253,7 +254,7 @@ The DOM structure (simplified):
       <span data-char-index="1">,</span>
       <!-- ...one span per character... -->
     </span>
-    <input data-numberflow-input-real-input type="string" readonly />
+    <input data-numberflow-input-real-input type="text" readonly />
     <!-- barrel-wheel overlays are appended here while animating -->
   </span>
 </span>
